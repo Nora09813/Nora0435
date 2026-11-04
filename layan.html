@@ -26,13 +26,13 @@ canvas{display:block;width:100%;height:100%}
 <body>
 <div id="stage"><canvas id="scene" width="1080" height="1920"></canvas></div>
 <button id="go" type="button">▶ شغّل مع الصوت</button>
-<p id="note">يحتاج الصوت نقرة واحدة لأن المتصفح يمنع التشغيل التلقائي</p>
+<p id="note">دقيقة كاملة · يحتاج الصوت نقرة واحدة لأن المتصفح يمنع التشغيل التلقائي</p>
 
 <script>
 (() => {
 "use strict";
 
-const W = 1080, H = 1920, TAU = Math.PI * 2, DUR = 10;
+const W = 1080, H = 1920, TAU = Math.PI * 2, DUR = 60;
 const cv = document.getElementById("scene");
 const g = cv.getContext("2d");
 const btn = document.getElementById("go");
@@ -49,27 +49,42 @@ function rng(a) {
     return ((t ^ t >>> 14) >>> 0) / 4294967296;
   };
 }
-// نافذة زمنية: تظهر ثم تتلاشى
-const win = (t, s, e) => clamp(Math.min(prog(t, s, .7), 1 - prog(t, e - .6, .6)));
+// نافذة زمنية: تظهر بنعومة ثم تتلاشى
+const win = (t, s, e) => clamp(Math.min(prog(t, s, .8), 1 - prog(t, e - .7, .7)));
+
+/* ================= المشاهد السبعة (المجموع 60 ثانية) ================= */
+const SCENES = [
+  { s: 0,    e: 8.5,  chord: [261.63, 329.63, 392.00], chime: true },
+  { s: 8.5,  e: 17,   chord: [392.00, 493.88, 587.33], chime: true },
+  { s: 17,   e: 25.5, chord: [220.00, 261.63, 329.63], chime: false },
+  { s: 25.5, e: 34,   chord: [349.23, 440.00, 523.25], chime: false },
+  { s: 34,   e: 42.5, chord: [293.66, 349.23, 440.00], chime: false },
+  { s: 42.5, e: 51,   chord: [261.63, 329.63, 392.00], chime: true },
+  { s: 51,   e: 60,   chord: [392.00, 493.88, 587.33], chime: true }
+];
 
 /* ================= العناصر البصرية ================= */
 const R = rng(5);
-const BOK = Array.from({ length: 22 }, () => ({
-  x: R() * W, y: R() * H, r: 40 + R() * 110, sp: .008 + R() * .02, ph: R() * TAU,
+const BOK = Array.from({ length: 26 }, () => ({
+  x: R() * W, y: R() * H, r: 40 + R() * 110, sp: .006 + R() * .018, ph: R() * TAU,
   c: ["255,214,222", "255,236,196", "206,238,222"][Math.floor(R() * 3)]
 }));
-const HEARTS = Array.from({ length: 9 }, () => ({
-  x: R(), sp: .03 + R() * .03, ph: R(), s: 26 + R() * 30, c: ["#f4a7b9", "#f7c3cf", "#e9a0a8"][Math.floor(R() * 3)]
+const HEARTS = Array.from({ length: 11 }, () => ({
+  x: R(), sp: .02 + R() * .025, ph: R(), s: 26 + R() * 30, c: ["#f4a7b9", "#f7c3cf", "#e9a0a8"][Math.floor(R() * 3)]
 }));
-const SPARKS = Array.from({ length: 30 }, () => ({
-  x: R(), sp: .05 + R() * .05, ph: R(), s: 3 + R() * 4, tw: R() * TAU
+const SPARKS = Array.from({ length: 36 }, () => ({
+  x: R(), sp: .04 + R() * .05, ph: R(), s: 3 + R() * 4, tw: R() * TAU
 }));
+// الزهور تظهر تدريجيًا على امتداد الدقيقة
 const FLOWERS = [
-  { x: .12, y: .9, s: 150, c: "#f4b6c2", d: 0 },
-  { x: .88, y: .88, s: 170, c: "#f7c9b6", d: .25 },
-  { x: .04, y: .42, s: 110, c: "#f9d3dc", d: .5 },
-  { x: .96, y: .38, s: 120, c: "#f4b6c2", d: .7 },
-  { x: .5, y: .98, s: 200, c: "#fbdcd0", d: .9 }
+  { x: .12, y: .9,  s: 150, c: "#f4b6c2", d: 0 },
+  { x: .88, y: .88, s: 170, c: "#f7c9b6", d: 3 },
+  { x: .04, y: .42, s: 110, c: "#f9d3dc", d: 12 },
+  { x: .96, y: .38, s: 120, c: "#f4b6c2", d: 20 },
+  { x: .5,  y: .98, s: 200, c: "#fbdcd0", d: 28 },
+  { x: .08, y: .7,  s: 90,  c: "#fbe0c8", d: 38 },
+  { x: .92, y: .66, s: 100, c: "#f9d3dc", d: 46 },
+  { x: .3,  y: 1.0, s: 130, c: "#f4b6c2", d: 54 }
 ].map((f, i) => ({ ...f, ph: i * 1.3 }));
 
 function background(lt) {
@@ -101,7 +116,7 @@ function bokeh(lt) {
   });
 }
 function flower(f, lt) {
-  const gw = easeOut(prog(lt, f.d, 1.6));
+  const gw = easeOut(prog(lt, f.d, 2));
   if (gw <= 0) return;
   g.save();
   g.translate(f.x * W, f.y * H);
@@ -139,11 +154,10 @@ function hearts(lt) {
 function sparkles(lt) {
   SPARKS.forEach(p => {
     const f = ((lt * p.sp + p.ph) % 1 + 1) % 1;
-    const y = H * (1 - f);
     const a = (.5 + .5 * Math.sin(lt * 3 + p.tw)) * Math.sin(f * Math.PI);
     g.globalAlpha = clamp(a);
     g.fillStyle = "#fff3c4";
-    g.beginPath(); g.arc(p.x * W, y, p.s, 0, TAU); g.fill();
+    g.beginPath(); g.arc(p.x * W, H * (1 - f), p.s, 0, TAU); g.fill();
   });
   g.globalAlpha = 1;
 }
@@ -155,8 +169,21 @@ function txt(s, x, y, font, color, a, shadow) {
   g.fillText(s, x, y);
   g.restore();
 }
+function goldGrad() {
+  const gold = g.createLinearGradient(0, H * .3, 0, H * .6);
+  gold.addColorStop(0, "#f8e3a4"); gold.addColorStop(.5, "#d4a85a"); gold.addColorStop(1, "#f3d48c");
+  return gold;
+}
+// نص يتكبر بنعومة عند الدخول
+function popText(s, y, font, color, a, lt, startAt, shadow) {
+  const sc = lerp(.85, 1, easeOut(prog(lt, startAt, 1.4)));
+  g.save();
+  g.translate(W / 2, y); g.scale(sc, sc); g.translate(-W / 2, -y);
+  txt(s, W / 2, y, font, color, a, shadow);
+  g.restore();
+}
 
-/* ================= المشاهد الثلاثة ================= */
+/* ================= الرسم حسب المشهد ================= */
 function draw(lt) {
   background(lt);
   bokeh(lt);
@@ -164,33 +191,58 @@ function draw(lt) {
   hearts(lt);
   sparkles(lt);
 
-  // المشهد 1: البشارة (0 – 3.2)
-  const a1 = win(lt, 0, 3.2);
-  const y1 = lerp(30, 0, easeOut(prog(lt, 0, 1.2)));
-  txt("جاتنا البشارة", W / 2, H * .36 + y1, "900 110px Cairo", "#7a4a55", a1, "rgba(255,255,255,.6)");
-  txt("يا هلا بشارة الخير", W / 2, H * .46 + y1, "700 60px Cairo", "#9a6470", a1, "rgba(255,255,255,.6)");
+  const ROSE = "#7a4a55", SOFT = "#9a6470", SHADOW = "rgba(255,255,255,.6)";
+  const [A, B, C, D, E, F, G] = SCENES.map(sc => win(lt, sc.s, sc.e));
+  const L = i => lt - SCENES[i].s;
 
-  // المشهد 2: اسم ليان (3 – 7)
-  const a2 = win(lt, 3, 7);
-  const sc2 = lerp(.85, 1, easeOut(prog(lt, 3, 1.4)));
-  g.save();
-  g.translate(W / 2, H * .44); g.scale(sc2, sc2); g.translate(-W / 2, -H * .44);
-  const gold = g.createLinearGradient(0, H * .3, 0, H * .6);
-  gold.addColorStop(0, "#f8e3a4"); gold.addColorStop(.5, "#d4a85a"); gold.addColorStop(1, "#f3d48c");
-  txt("ليان", W / 2, H * .44, "900 300px Cairo", gold, a2, "rgba(190,130,60,.45)");
-  g.restore();
-  txt("المولودة الجديدة", W / 2, H * .56, "500 52px Cairo", "#8a5a4a", a2, "rgba(255,255,255,.6)");
+  // 1: البشارة
+  if (A > 0) {
+    const y = lerp(30, 0, easeOut(prog(L(0), 0, 1.2)));
+    txt("جاتنا البشارة", W / 2, H * .36 + y, "900 110px Cairo", ROSE, A, SHADOW);
+    txt("يا هلا بشارة الخير", W / 2, H * .46 + y, "700 60px Cairo", SOFT, A, SHADOW);
+  }
+  // 2: اسم ليان
+  if (B > 0) {
+    popText("ليان", H * .44, "900 300px Cairo", goldGrad(), B, L(1), 0, "rgba(190,130,60,.45)");
+    txt("المولودة الجديدة", W / 2, H * .56, "500 52px Cairo", "#8a5a4a", B, SHADOW);
+  }
+  // 3: النور الصغير
+  if (C > 0) {
+    txt("أهلًا بالنور الصغير", W / 2, H * .4, "900 92px Cairo", ROSE, C, SHADOW);
+    txt("نوّرتِ البيت يا ليان", W / 2, H * .49, "700 60px Cairo", SOFT, C, SHADOW);
+  }
+  // 4: الفرح
+  if (D > 0) {
+    txt("الفرح يملأ البيت", W / 2, H * .4, "900 96px Cairo", ROSE, D, SHADOW);
+    txt("والضحكة تعم المكان", W / 2, H * .49, "700 60px Cairo", SOFT, D, SHADOW);
+  }
+  // 5: الدعاء
+  if (E > 0) {
+    txt("اللهم أنبتها نباتاً حسناً", W / 2, H * .4, "700 64px Cairo", ROSE, E, SHADOW);
+    txt("واجعلها قرة عين لوالديها", W / 2, H * .47, "700 64px Cairo", ROSE, E, SHADOW);
+  }
+  // 6: التبريك
+  if (F > 0) {
+    txt("بارك الله لكم", W / 2, H * .4, "900 96px Cairo", ROSE, F, SHADOW);
+    txt("في مولودتكم الغالية", W / 2, H * .5, "700 62px Cairo", SOFT, F, SHADOW);
+  }
+  // 7: الختام
+  if (G > 0) {
+    popText("ليان", H * .38, "900 240px Cairo", goldGrad(), G, L(6), 0, "rgba(190,130,60,.45)");
+    txt("مبروك", W / 2, H * .55, "900 110px Cairo", ROSE, G, SHADOW);
+    txt("نسأل الله لها عمرًا سعيدًا", W / 2, H * .64, "500 50px Cairo", SOFT, G, SHADOW);
+  }
 
-  // المشهد 3: الدعاء (7 – 10)
-  const a3 = win(lt, 7, DUR);
-  txt("اللهم أنبتها نباتاً حسناً", W / 2, H * .4, "700 64px Cairo", "#7a4a55", a3, "rgba(255,255,255,.6)");
-  txt("واجعلها قرة عين لوالديها", W / 2, H * .47, "700 64px Cairo", "#7a4a55", a3, "rgba(255,255,255,.6)");
-  txt("ليان", W / 2, H * .3, "900 90px Cairo", "#c8964a", a3 * .9, "rgba(255,255,255,.5)");
-
-  // لمسة تلاشي خفيفة على الحواف
+  // تدرج خفيف على الحواف
   const vg = g.createRadialGradient(W / 2, H / 2, H * .35, W / 2, H / 2, H * .8);
   vg.addColorStop(0, "rgba(255,255,255,0)"); vg.addColorStop(1, "rgba(120,70,80,.18)");
   g.fillStyle = vg; g.fillRect(0, 0, W, H);
+
+  // شريط تقدم ذهبي خفيف
+  g.save();
+  g.fillStyle = "rgba(255,255,255,.35)"; g.fillRect(0, H - 8, W, 8);
+  g.fillStyle = "#d4a85a"; g.fillRect(0, H - 8, W * clamp(lt / DUR), 8);
+  g.restore();
 }
 
 /* ================= الصوت (مُولّد داخل الصفحة) ================= */
@@ -212,34 +264,39 @@ function startAudio() {
   const wet = ac.createGain(); wet.gain.value = .28;
   delay.connect(fb); fb.connect(delay); delay.connect(wet); wet.connect(master);
 
-  const tone = (freq, start, dur, type, vol) => {
+  // نغمة واحدة: مظروف بسيط (هجوم وتلاشٍ)
+  const tone = (freq, start, dur, type, vol, attack = .012) => {
     const o = ac.createOscillator(), gn = ac.createGain();
     o.type = type; o.frequency.value = freq;
     const s = now + start;
     gn.gain.setValueAtTime(0, s);
-    gn.gain.linearRampToValueAtTime(vol, s + .012);
+    gn.gain.linearRampToValueAtTime(vol, s + attack);
     gn.gain.exponentialRampToValueAtTime(.0001, s + dur);
     o.connect(gn); gn.connect(master); gn.connect(delay);
     o.start(s); o.stop(s + dur + .05);
   };
 
-  // المشهد 1: جرس ترحيبي
-  tone(1046.5, 0, 2.6, "sine", .18);
-  tone(1318.5, .12, 2.4, "sine", .11);
-  tone(1568, .26, 2.2, "sine", .09);
+  SCENES.forEach((sc, i) => {
+    const d = sc.e - sc.s;
+    // وسادة ناعمة بالأكورد
+    sc.chord.forEach((f, j) => tone(f, sc.s, d + 1, "sine", .045 - j * .008, .8));
+    // قيثارة: أربيج خفيف على امتداد المشهد
+    const notes = [sc.chord[0], sc.chord[1], sc.chord[2], sc.chord[0] * 2, sc.chord[1] * 2, sc.chord[2] * 2];
+    for (let k = 0, time = sc.s + .4; time < sc.e - .6; k++, time += .24) {
+      tone(notes[k % notes.length], time, 1.8, "triangle", .1);
+    }
+    // جرس البداية لبعض المشاهد
+    if (sc.chime) {
+      tone(sc.chord[2] * 2, sc.s, 2.6, "sine", .14);
+      tone(sc.chord[1] * 2, sc.s + .12, 2.4, "sine", .09);
+    }
+    // لمعان خفيف في نهاية كل مشهد
+    if (i % 2 === 1) tone(2400 + (i % 3) * 300, sc.e - .8, .3, "sine", .04);
+  });
 
-  // المشهد 2: قيثارة بسلّم خماسي ناعم + وسادة هادئة
-  const notes = [523.25, 587.33, 659.25, 783.99, 880, 1046.5];
-  for (let i = 0; i < 12; i++) tone(notes[i % 6], 3 + i * .22, 1.8, "triangle", .12);
-  tone(261.63, 3, 6.5, "sine", .05);
-  tone(329.63, 3, 6.5, "sine", .04);
-
-  // المشهد 3: لمعان خفيف
-  for (let i = 0; i < 9; i++) tone(2400 + (i % 3) * 600, 7.2 + i * .26, .3, "sine", .045);
-
-  // نهاية ناعمة
-  tone(3136, 9.3, 1.3, "sine", .07);
-  master.gain.setValueAtTime(.5, now + 8.6);
+  // ختام: لمعان ثم تلاشٍ
+  for (let i = 0; i < 6; i++) tone(2600 + i * 200, 56 + i * .25, .3, "sine", .045);
+  master.gain.setValueAtTime(.5, now + 56.5);
   master.gain.linearRampToValueAtTime(0, now + DUR);
 }
 
