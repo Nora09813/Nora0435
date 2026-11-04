@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+<meta charset="UTF-8">
+<title>فصول السنة الأربعة</title>
+<style>
+body{margin:0;overflow:hidden;font-family:Arial}
+canvas{display:block;width:100vw;height:100vh}
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<script>
+const c=document.getElementById("scene");
+const ctx=c.getContext("2d");
+let w,h,t=0,particles=[];
+const seasons=[
+ {name:"الربيع",sky:"#91dcff",ground:"#58a85b",leaf:"#27a65b",items:["🌸","🌼","🦋"]},
+ {name:"الصيف",sky:"#42b8f5",ground:"#9bcf58",leaf:"#238447",items:["☀️","🌻","✨"]},
+ {name:"الخريف",sky:"#f5bd87",ground:"#bd8047",leaf:"#d87928",items:["🍂","🍁","🍃"]},
+ {name:"الشتاء",sky:"#a8cde8",ground:"#eaf5ff",leaf:"#b9dce9",items:["❄","❅","❄"]}
+];
+function resize(){
+ w=c.width=innerWidth*devicePixelRatio;
+ h=c.height=innerHeight*devicePixelRatio;
+ ctx.setTransform(1,0,0,1,0,0);
+}
+addEventListener("resize",resize);resize();
+for(let i=0;i<65;i++)particles.push({
+ x:Math.random(),y:Math.random(),
+ s:Math.random()*22+8,v:Math.random()*.0015+.0005
+});
+function draw(){
+ t+=.004;
+ let index=Math.floor(t/7)%4;
+ let s=seasons[index];
+ let f=(t%7)/7;
+ ctx.clearRect(0,0,w,h);
+ let g=ctx.createLinearGradient(0,0,0,h);
+ g.addColorStop(0,s.sky);g.addColorStop(1,"#fff0d0");
+ ctx.fillStyle=g;ctx.fillRect(0,0,w,h);
+
+ let sunX=w*(.18+.64*f);
+ ctx.beginPath();
+ ctx.arc(sunX,h*.18,Math.min(w,h)*.055,0,Math.PI*2);
+ ctx.fillStyle="#fff2a0";ctx.shadowBlur=40;
+ ctx.shadowColor="#fff0a0";ctx.fill();ctx.shadowBlur=0;
+
+ // الغيوم
+ for(let i=0;i<5;i++){
+ let x=((i*.25+t*.015)%1.3)*w-w*.1;
+ ctx.fillStyle="#ffffff99";
+ ctx.beginPath();
+ ctx.ellipse(x,h*.17+i%2*h*.06,w*.07,h*.025,0,0,7);
+ ctx.fill();
+ }
+
+ // الجبال
+ ctx.fillStyle=s.ground;
+ ctx.beginPath();ctx.moveTo(0,h*.72);
+ for(let x=0;x<=w;x+=w/8){
+ ctx.lineTo(x,h*(.63+Math.sin(x/w*9+t)*.045));
+ }
+ ctx.lineTo(w,h);ctx.lineTo(0,h);ctx.fill();
+
+ // الأشجار
+ for(let i=0;i<7;i++){
+ let x=w*(i/7+.04),base=h*.78;
+ ctx.fillStyle="#78513a";
+ ctx.fillRect(x-w*.008,base-h*.16,w*.016,h*.17);
+ for(let j=0;j<3;j++){
+ ctx.beginPath();
+ ctx.arc(x,base-h*(.18+j*.045),w*.035,0,Math.PI*2);
+ ctx.fillStyle=s.leaf;ctx.fill();
+ }
+ }
+
+ // الجزيئات المتحركة
+ for(let p of particles){
+ p.y+=p.v*(index===3?1.3:1);
+ p.x+=Math.sin(t+p.s)*.0003;
+ if(p.y>1.1){p.y=-.05;p.x=Math.random();}
+ ctx.font=`${p.s*devicePixelRatio}px Arial`;
+ ctx.fillText(s.items[Math.floor(p.s)%s.items.length],
+ p.x*w,p.y*h);
+ }
+
+ // عنوان الفصل
+ ctx.textAlign="center";
+ ctx.fillStyle="#ffffff";
+ ctx.shadowBlur=12;ctx.shadowColor="#20384c";
+ ctx.font=`bold ${Math.min(w*.09,64*devicePixelRatio)}px Arial`;
+ ctx.fillText("فصل "+s.name,w/2,h*.43);
+ ctx.shadowBlur=0;
+ ctx.font=`${Math.min(w*.035,24*devicePixelRatio)}px Arial`;
+ ctx.fillText("رحلة جميلة عبر الطبيعة والزمن",w/2,h*.50);
+
+ requestAnimationFrame(draw);
+}
+draw();
+</script>
+</body>
+</html>
