@@ -10,10 +10,10 @@
 <style>
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:#05080f;color:#f3ead8;font-family:"Cairo",Tahoma,Arial,sans-serif}
-body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:12px;min-height:100vh;min-height:100dvh}
+body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:12px 12px 150px;min-height:100vh;min-height:100dvh}
 #stage{
-  width:min(calc(100vw - 24px), calc((100vh - 150px) * 9 / 16));
-  width:min(calc(100vw - 24px), calc((100dvh - 150px) * 9 / 16));
+  width:min(calc(100vw - 24px), calc((100vh - 290px) * 9 / 16));
+  width:min(calc(100vw - 24px), calc((100dvh - 290px) * 9 / 16));
   aspect-ratio:9/16;
   border-radius:16px;overflow:hidden;background:#000;
   box-shadow:0 24px 70px rgba(0,0,0,.6);
@@ -25,9 +25,28 @@ button:hover{filter:brightness(1.08)}
 button:disabled{opacity:.4;cursor:default}
 #seek{flex:1 1 180px;accent-color:#ffd27a;min-width:120px}
 #time{font-variant-numeric:tabular-nums;font-size:14px;min-width:96px;text-align:center;direction:ltr}
-#rec{background:#ffd27a}
 #hint{margin:0;font-size:13px;opacity:.75;text-align:center;width:min(calc(100vw - 24px),560px)}
-#dl{color:#ffd27a;font-weight:700;margin-inline-start:8px}
+#dock{
+  position:fixed;left:0;right:0;bottom:0;z-index:20;
+  display:flex;flex-direction:column;align-items:center;gap:10px;
+  padding:14px 12px calc(14px + env(safe-area-inset-bottom));
+  background:linear-gradient(rgba(5,8,15,0),#05080f 40%);
+}
+#export{
+  font:inherit;font-weight:900;font-size:19px;color:#0b1220;
+  background:#ffd27a;border:0;border-radius:999px;
+  padding:15px 30px;min-width:min(86vw,320px);cursor:pointer;
+  box-shadow:0 10px 28px rgba(255,210,122,.4);touch-action:manipulation;
+}
+#export:active{transform:scale(.98)}
+#export:disabled{opacity:.45;cursor:default;box-shadow:none}
+#status{font-size:15px;text-align:center;min-height:1em}
+#status:empty{display:none}
+#dl{
+  display:inline-block;background:#7fe3a0;color:#05200f;text-decoration:none;
+  font-weight:800;padding:12px 20px;border-radius:999px;
+}
+button:disabled{opacity:.4}
 </style>
 </head>
 <body>
@@ -37,9 +56,13 @@ button:disabled{opacity:.4;cursor:default}
   <button id="restart" type="button">↺ من البداية</button>
   <input id="seek" type="range" min="0" max="1000" value="0" aria-label="شريط التقدم">
   <span id="time">0:00 / 0:35</span>
-  <button id="rec" type="button">⏺ تصدير الفيديو</button>
 </div>
-<p id="hint">مسافة: تشغيل/إيقاف · مدة المشهد 35 ثانية · بصيغة 9:16 للجوال <a id="dl" hidden></a></p>
+<p id="hint">مسافة: تشغيل/إيقاف · المدة 35 ثانية · بصيغة 9:16 للجوال</p>
+
+<div id="dock">
+  <div id="status" role="status" aria-live="polite"></div>
+  <button id="export" type="button">⏺ تصدير الفيديو</button>
+</div>
 
 <script>
 (() => {
@@ -628,10 +651,10 @@ function renderAt(t) {
 /* ================= التشغيل والواجهة ================= */
 const $ = id => document.getElementById(id);
 const playBtn = $("play"), restartBtn = $("restart"), seek = $("seek");
-const timeEl = $("time"), recBtn = $("rec"), dl = $("dl");
+const timeEl = $("time"), exportBtn = $("export"), statusEl = $("status");
 
 let t = 0, playing = false, last = performance.now();
-let recorder = null, chunks = [], recExt = "webm";
+let recorder = null;
 
 // بدء من وقت محدد عبر الرابط: index.html#t=12
 const hm = location.hash.match(/t=([\d.]+)/);
@@ -643,6 +666,7 @@ function updateUI() {
   if (document.activeElement !== seek) seek.value = Math.round(t / TOTAL * 1000);
   timeEl.textContent = fmt(t) + " / " + fmt(TOTAL);
   playBtn.textContent = playing ? "⏸ إيقاف" : "▶ تشغيل";
+  if (recording) statusEl.textContent = "جارٍ التسجيل… " + fmt(t) + " / " + fmt(TOTAL);
 }
 
 function frame(now) {
@@ -667,32 +691,77 @@ document.addEventListener("keydown", e => {
   if (e.code === "Space" && e.target.tagName !== "BUTTON") { e.preventDefault(); playBtn.click(); }
 });
 
-// تصدير الفيديو (WebM أو MP4 حسب دعم المتصفح)
-const MIME = ["video/mp4", "video/webm;codecs=vp9", "video/webm"]
-  .find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m));
-if (!MIME || !cv.captureStream) {
-  recBtn.disabled = true;
-  recBtn.title = "المتصفح لا يدعم تسجيل الفيديو مباشرة";
+// ===== تصدير الفيديو: تسجيل الحركة كاملة بالوقت الحقيقي =====
+// الأولوية لـ MP4 إن كان المتصفح يدعمه، وإلا WebM
+const MIMES = ["video/mp4", "video/webm;codecs=vp9", "video/webm"];
+const MIME = window.MediaRecorder ? MIMES.find(m => MediaRecorder.isTypeSupported(m)) : null;
+const canRecord = !!(MIME && cv.captureStream);
+let recording = false, stopTimer = null, dlUrl = null;
+
+function setLocked(on) {
+  playBtn.disabled = on; restartBtn.disabled = on; seek.disabled = on;
 }
-recBtn.onclick = () => {
-  if (recorder && recorder.state !== "inactive") { recorder.stop(); return; }
+
+function finishRecording() {
+  clearTimeout(stopTimer);
+  recording = false;
+  setLocked(false);
+  exportBtn.textContent = "⏺ تصدير الفيديو";
+  exportBtn.disabled = !canRecord;
+}
+
+function startExport() {
+  if (!canRecord || recording) return;
+  if (dlUrl) { URL.revokeObjectURL(dlUrl); dlUrl = null; }
+  statusEl.textContent = "";
+
+  const type = MIME.split(";")[0];
+  const ext = type === "video/mp4" ? "mp4" : "webm";
   const stream = cv.captureStream(30);
-  chunks = [];
-  recExt = MIME.startsWith("video/mp4") ? "mp4" : "webm";
-  recorder = new MediaRecorder(stream, { mimeType: MIME, videoBitsPerSecond: 8000000 });
-  recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
-  recorder.onstop = () => {
-    const blob = new Blob(chunks, { type: MIME.split(";")[0] });
-    dl.href = URL.createObjectURL(blob);
-    dl.download = "seasons-9x16." + recExt;
-    dl.textContent = "⬇ تحميل الفيديو";
-    dl.hidden = false;
-    recBtn.textContent = "⏺ تصدير الفيديو";
+  const chunks = [];
+  let rec;
+  try {
+    rec = new MediaRecorder(stream, { mimeType: MIME, videoBitsPerSecond: 8000000 });
+  } catch (err) {
+    statusEl.textContent = "تعذّر بدء التسجيل على هذا المتصفح";
+    return;
+  }
+  recorder = rec;
+
+  rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  rec.onstop = () => {
+    const blob = new Blob(chunks, { type });
+    dlUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.id = "dl";
+    a.href = dlUrl;
+    a.download = "seasons-9x16." + ext;
+    a.textContent = "⬇ تنزيل الفيديو (" + ext.toUpperCase() + "، " + (blob.size / 1048576).toFixed(1) + " MB)";
+    statusEl.textContent = "";
+    statusEl.appendChild(a);
+    stream.getTracks().forEach(tr => tr.stop());
+    finishRecording();
   };
+
   t = 0; playing = true;
-  recBtn.textContent = "⏹ إيقاف التسجيل";
-  recorder.start(250);
+  recording = true; setLocked(true);
+  exportBtn.textContent = "⏹ إيقاف التسجيل";
+  rec.start(250);
+
+  // ضمان الإيقاف بعد انتهاء المدة حتى لو تأخرت الإطارات
+  stopTimer = setTimeout(() => {
+    if (recorder && recorder.state !== "inactive") recorder.stop();
+  }, (TOTAL + 2) * 1000);
+}
+
+exportBtn.onclick = () => {
+  if (recording) { if (recorder.state !== "inactive") recorder.stop(); }
+  else startExport();
 };
+if (!canRecord) {
+  exportBtn.disabled = true;
+  statusEl.textContent = "هذا المتصفح لا يدعم تسجيل الفيديو مباشرة";
+}
 
 // انتظار الخط العربي قبل بدء الحركة حتى لا تظهر العناوين بخط بديل
 renderAt(t);
