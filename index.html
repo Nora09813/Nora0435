@@ -698,6 +698,20 @@ const MIME = window.MediaRecorder ? MIMES.find(m => MediaRecorder.isTypeSupporte
 const canRecord = !!(MIME && cv.captureStream);
 let recording = false, stopTimer = null, dlUrl = null;
 
+// داخل عارض Claude يُحفظ الملف عبر واجهة التنزيلات؛ في المتصفح العادي يعمل الرابط مباشرة
+let downloadsNs = null;
+try {
+  if (window.claude && window.claude.use) {
+    window.claude.use("downloads").then(ns => { downloadsNs = ns || null; }).catch(() => {});
+  }
+} catch (e) { /* لا شيء: نستخدم الرابط العادي */ }
+
+function showDone(msg, link) {
+  statusEl.textContent = msg;
+  statusEl.appendChild(document.createElement("br"));
+  statusEl.appendChild(link);
+}
+
 function setLocked(on) {
   playBtn.disabled = on; restartBtn.disabled = on; seek.disabled = on;
 }
@@ -732,11 +746,22 @@ function startExport() {
   rec.onstop = () => {
     const blob = new Blob(chunks, { type });
     dlUrl = URL.createObjectURL(blob);
+    const filename = "seasons-9x16." + ext;
     const a = document.createElement("a");
     a.id = "dl";
     a.href = dlUrl;
-    a.download = "seasons-9x16." + ext;
+    a.download = filename;
     a.textContent = "⬇ تنزيل الفيديو (" + ext.toUpperCase() + "، " + (blob.size / 1048576).toFixed(1) + " MB)";
+    a.onclick = async e => {
+      if (!downloadsNs) return; // المتصفح العادي: تنزيل مباشر من الرابط
+      e.preventDefault();
+      try {
+        await downloadsNs.save({ filename, data: blob });
+        showDone("تم حفظ الفيديو", a);
+      } catch (err) {
+        showDone(err && err.code === "declined" ? "تم إلغاء التنزيل" : "تعذّر التنزيل في هذا العرض", a);
+      }
+    };
     statusEl.textContent = "";
     statusEl.appendChild(a);
     stream.getTracks().forEach(tr => tr.stop());
