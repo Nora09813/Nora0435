@@ -78,6 +78,7 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const prog = (t, s, d) => clamp((t - s) / d);
 const easeOut = t => 1 - Math.pow(1 - clamp(t), 3);
 const easeIO = t => { t = clamp(t); return t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; };
+const easeOutBack = t => { t = clamp(t); const c = 1.70158; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); };
 
 // مولّد أرقام عشوائية ثابت (حتى تكون المشاهد متطابقة في كل تشغيل)
 function rng(a) {
@@ -328,7 +329,12 @@ function seasonTitle(lt, n, title, sub, color, shadow) {
   g.save(); g.globalAlpha = a; g.fillStyle = "#ffd27a";
   g.fillRect(W / 2 - lw / 2, 380 + y, lw, 4); g.restore();
   const b = easeOut(prog(lt, .9, 1.1));
-  txt(title, W / 2, 500 + lerp(50, 0, b), "900 180px Cairo", color, b, shadow);
+  g.save();
+  g.translate(W / 2, 500 + lerp(50, 0, b));
+  const sc = lerp(1.25, 1, easeOutBack(prog(lt, .9, 1.1)));
+  g.scale(sc, sc);
+  txt(title, 0, 0, "900 180px Cairo", color, b, shadow);
+  g.restore();
   const c = easeOut(prog(lt, 1.5, 1.2));
   txt(sub, W / 2, 650 + lerp(30, 0, c), "400 46px Cairo", "#ffffff", c, "rgba(0,0,0,.4)");
 }
@@ -375,7 +381,7 @@ const IN_STARS = (() => { const r = rng(7); return Array.from({ length: 150 }, (
 // الربيع
 const SP_TREES = [makeTree(11, W * .16, H * .8, 150, 4), makeTree(12, W * .9, H * .82, 165, 4)];
 const SP_FLOWERS = (() => { const r = rng(21); return Array.from({ length: 16 }, (_, i) => ({ x: W * (i / 15) + (r() - .5) * 70, y: H * (.86 + r() * .1), s: 30 + r() * 24, ph: r() * TAU, c: ["#ff8fb1", "#ffd1e0", "#fff2a0", "#ffffff"][i % 4] })); })();
-const SP_PETALS = parts(31, 50, { sp: [.035, .06], am: .03, sz: [7, 13], c: ["#ffc2d9", "#ff9cc0", "#ffffff"] });
+const SP_PETALS = parts(31, 80, { sp: [.035, .06], am: .03, sz: [7, 13], c: ["#ffc2d9", "#ff9cc0", "#ffffff"] });
 const SP_FLY = [{ ph: 0, c: "#ffb347" }, { ph: 2.4, c: "#ff7eb3" }, { ph: 4.1, c: "#9fd8ff" }];
 
 // الصيف
@@ -384,7 +390,7 @@ const SU_SPARK = (() => { const r = rng(44); return Array.from({ length: 40 }, (
 
 // الخريف
 const AU_TREES = [makeTree(31, W * .1, H * .8, 150, 4), makeTree(32, W * .5, H * .84, 175, 4), makeTree(33, W * .92, H * .8, 150, 4)];
-const AU_LEAVES = parts(41, 46, { sp: [.03, .05], am: .04, sz: [12, 22], c: ["#e4572e", "#f3a712", "#c1440e", "#ffb703", "#d9622b"] });
+const AU_LEAVES = parts(41, 70, { sp: [.03, .05], am: .04, sz: [12, 22], c: ["#e4572e", "#f3a712", "#c1440e", "#ffb703", "#d9622b"] });
 
 // الشتاء
 const WI_STARS = (() => { const r = rng(55); return Array.from({ length: 70 }, () => ({ x: r() * W, y: r() * H * .45, s: .8 + r() * 2, p: r() * TAU, sp: .8 + r() * 2 })); })();
@@ -469,6 +475,10 @@ function drawOutro(lt) {
 function drawSpring(lt) {
   sky([[0, "#73c7ff"], [.5, "#c9eeff"], [.85, "#ffe3ee"], [1, "#fff3dc"]]);
   sun(W * .8, H * .2, 64, "rgba(255,246,200,.9)", "#fffbe6", .95);
+  // أشعة شمس ناعمة تدور ببطء
+  g.save(); g.translate(W * .8, H * .2); g.rotate(lt * .05); g.globalAlpha = .12; g.fillStyle = "#ffffff";
+  for (let i = 0; i < 14; i++) { g.rotate(TAU / 14); g.beginPath(); g.moveTo(0, 0); g.lineTo(-30, 700); g.lineTo(30, 700); g.closePath(); g.fill(); }
+  g.restore();
   drift(0, lt, .012, H * .12, 1.1, .9);
   drift(1, lt, .01, H * .22, .8, .85);
   drift(2, lt, .014, H * .08, .9, .8);
@@ -601,7 +611,7 @@ const SCENES = [
   { dur: 8, draw: drawSummer },
   { dur: 8, draw: drawAutumn },
   { dur: 8, draw: drawWinter },
-  { dur: 5, draw: drawOutro }
+  { dur: 8.5, draw: drawOutro }
 ];
 const TR = 1.4; // مدة الانتقال بين المشاهد
 {
@@ -646,6 +656,24 @@ function renderAt(t) {
   } else {
     renderScene(k, t - S.start);
   }
+  overlayFx(t, k);
+}
+
+// تأثيرات فوق الإطار: وميض عند الانتقال، وشريط تقدم ذهبي أسفل الفيديو
+function overlayFx(t, k) {
+  if (k > 0 && t < SCENES[k].start + TR) {
+    const p = clamp((t - SCENES[k].start) / TR);
+    g.save();
+    g.globalCompositeOperation = "lighter";
+    g.globalAlpha = .35 * Math.sin(p * Math.PI);
+    g.fillStyle = "#fff2cc";
+    g.fillRect(0, 0, W, H);
+    g.restore();
+  }
+  g.save();
+  g.fillStyle = "rgba(255,255,255,.2)"; g.fillRect(0, H - 8, W, 8);
+  g.fillStyle = "#ffd27a"; g.fillRect(0, H - 8, W * clamp(t / TOTAL), 8);
+  g.restore();
 }
 
 /* ================= التشغيل والواجهة ================= */
@@ -655,6 +683,21 @@ const timeEl = $("time"), exportBtn = $("export"), statusEl = $("status");
 
 let t = 0, playing = false, last = performance.now();
 let recorder = null;
+
+// التعليق الصوتي: يُشغَّل مع الحركة ويُمزج داخل الفيديو المُصدَّر
+const audio = new Audio("narration.mp3");
+audio.preload = "auto";
+audio.onerror = () => {};
+
+function setPlaying(v) {
+  playing = v;
+  if (v) {
+    try { audio.currentTime = t; } catch (e) {}
+    audio.play().catch(() => {});
+  } else {
+    audio.pause();
+  }
+}
 
 // بدء من وقت محدد عبر الرابط: index.html#t=12
 const hm = location.hash.match(/t=([\d.]+)/);
@@ -674,8 +717,13 @@ function frame(now) {
   last = now;
   if (playing) {
     t += dt;
+    // تصحيح الانحراف بين الصوت والصورة
+    if (!audio.paused && Math.abs(audio.currentTime - t) > .3) {
+      try { audio.currentTime = t; } catch (e) {}
+    }
     if (t >= TOTAL) {
-      t = TOTAL; playing = false;
+      t = TOTAL;
+      setPlaying(false);
       if (recorder && recorder.state !== "inactive") recorder.stop();
     }
   }
@@ -684,9 +732,9 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
-playBtn.onclick = () => { if (t >= TOTAL) t = 0; playing = !playing; };
-restartBtn.onclick = () => { t = 0; playing = true; };
-seek.oninput = () => { t = seek.value / 1000 * TOTAL; };
+playBtn.onclick = () => { if (t >= TOTAL) t = 0; setPlaying(!playing); };
+restartBtn.onclick = () => { t = 0; setPlaying(true); };
+seek.oninput = () => { t = seek.value / 1000 * TOTAL; try { audio.currentTime = t; } catch (e) {} };
 document.addEventListener("keydown", e => {
   if (e.code === "Space" && e.target.tagName !== "BUTTON") { e.preventDefault(); playBtn.click(); }
 });
@@ -719,9 +767,28 @@ function setLocked(on) {
 function finishRecording() {
   clearTimeout(stopTimer);
   recording = false;
+  setPlaying(false);
   setLocked(false);
   exportBtn.textContent = "⏺ تصدير الفيديو";
   exportBtn.disabled = !canRecord;
+}
+
+// مسار صوت للتسجيل: يمرّ الصوت عبر Web Audio إلى MediaStream
+let actx = null, mdest = null;
+function audioTrack() {
+  try {
+    if (!actx) {
+      actx = new (window.AudioContext || window.webkitAudioContext)();
+      const src = actx.createMediaElementSource(audio);
+      mdest = actx.createMediaStreamDestination();
+      src.connect(mdest);
+      src.connect(actx.destination);
+    }
+    actx.resume();
+    return mdest.stream.getAudioTracks()[0] || null;
+  } catch (e) {
+    return null;
+  }
 }
 
 function startExport() {
@@ -732,6 +799,8 @@ function startExport() {
   const type = MIME.split(";")[0];
   const ext = type === "video/mp4" ? "mp4" : "webm";
   const stream = cv.captureStream(30);
+  const at = audioTrack();
+  if (at) stream.addTrack(at);
   const chunks = [];
   let rec;
   try {
@@ -768,7 +837,7 @@ function startExport() {
     finishRecording();
   };
 
-  t = 0; playing = true;
+  t = 0; setPlaying(true);
   recording = true; setLocked(true);
   exportBtn.textContent = "⏹ إيقاف التسجيل";
   rec.start(250);
