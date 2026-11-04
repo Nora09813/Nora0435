@@ -26,6 +26,7 @@ canvas{display:block;width:100%;height:100%}
 <body>
 <div id="stage"><canvas id="scene" width="1080" height="1920"></canvas></div>
 <button id="go" type="button">▶ شغّل مع الصوت</button>
+<button id="exp" type="button">⏺ تصدير MP4</button>
 <p id="note">دقيقة كاملة · يحتاج الصوت نقرة واحدة لأن المتصفح يمنع التشغيل التلقائي</p>
 
 <script>
@@ -246,7 +247,7 @@ function draw(lt) {
 }
 
 /* ================= الصوت (مُولّد داخل الصفحة) ================= */
-let ac = null, t0 = 0;
+let ac = null, t0 = 0, mdest = null;
 function startAudio() {
   try {
     ac = new (window.AudioContext || window.webkitAudioContext)();
@@ -257,6 +258,9 @@ function startAudio() {
   const master = ac.createGain(); master.gain.value = .5;
   const comp = ac.createDynamicsCompressor();
   master.connect(comp); comp.connect(ac.destination);
+  // نفس الصوت يُوجَّه إلى مسار التسجيل أيضًا
+  mdest = ac.createMediaStreamDestination();
+  master.connect(mdest);
 
   // صدى ناعم
   const delay = ac.createDelay(); delay.delayTime.value = .28;
@@ -309,6 +313,7 @@ function loop() {
       lt = DUR; playing = false;
       btn.textContent = "↺ إعادة التشغيل";
       btn.disabled = false;
+      if (recorder && recorder.state !== "inactive") recorder.stop();
     }
   }
   draw(clamp(lt, 0, DUR));
@@ -331,6 +336,47 @@ btn.onclick = () => {
     requestAnimationFrame(tick);
   }
 };
+
+// ===== تصدير الفيديو: الصورة والصوت معًا، MP4 إن كان مدعومًا وإلا WebM =====
+const MIMES = ["video/mp4", "video/webm;codecs=vp9", "video/webm"];
+const MIME = window.MediaRecorder ? MIMES.find(m => MediaRecorder.isTypeSupported(m)) : null;
+const expBtn = document.getElementById("exp");
+const note = document.getElementById("note");
+let recorder = null;
+
+function startExport() {
+  if (!MIME || recorder) return;
+  if (ac) { try { ac.close(); } catch (e) {} }
+  startAudio();
+  if (!ac) { note.textContent = "هذا المتصفح لا يدعم الصوت المطلوب للتصدير"; return; }
+
+  const stream = cv.captureStream(30);
+  if (mdest) mdest.stream.getAudioTracks().forEach(tr => stream.addTrack(tr));
+  const type = MIME.split(";")[0];
+  const ext = type === "video/mp4" ? "mp4" : "webm";
+  const chunks = [];
+  recorder = new MediaRecorder(stream, { mimeType: MIME, videoBitsPerSecond: 8000000, audioBitsPerSecond: 192000 });
+  recorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  recorder.onstop = () => {
+    const blob = new Blob(chunks, { type });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "layan-60s." + ext;
+    a.textContent = "⬇ تنزيل الفيديو (" + ext.toUpperCase() + "، " + (blob.size / 1048576).toFixed(1) + " MB)";
+    note.textContent = "";
+    note.appendChild(a);
+    stream.getTracks().forEach(tr => tr.stop());
+    recorder = null;
+    expBtn.disabled = false;
+  };
+  lt = 0; playing = true;
+  btn.disabled = true; expBtn.disabled = true;
+  btn.textContent = "جارٍ التصدير…";
+  note.textContent = "جارٍ تسجيل الدقيقة كاملة…";
+  recorder.start(250);
+  setTimeout(() => { if (recorder && recorder.state !== "inactive") recorder.stop(); }, (DUR + 2) * 1000);
+}
+expBtn.onclick = startExport;
 
 draw(0);
 requestAnimationFrame(loop);
