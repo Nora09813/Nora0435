@@ -1,103 +1,714 @@
 <!DOCTYPE html>
-<html lang="ar">
+<html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>فصول السنة الأربعة</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap" rel="stylesheet">
 <style>
-body{margin:0;overflow:hidden;font-family:Arial}
-canvas{display:block;width:100vw;height:100vh}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#05080f;color:#f3ead8;font-family:"Cairo",Tahoma,Arial,sans-serif}
+body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:12px;min-height:100vh;min-height:100dvh}
+#stage{
+  width:min(calc(100vw - 24px), calc((100vh - 150px) * 9 / 16));
+  width:min(calc(100vw - 24px), calc((100dvh - 150px) * 9 / 16));
+  aspect-ratio:9/16;
+  border-radius:16px;overflow:hidden;background:#000;
+  box-shadow:0 24px 70px rgba(0,0,0,.6);
+}
+canvas{display:block;width:100%;height:100%}
+#ui{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:8px;width:min(calc(100vw - 24px),560px)}
+button{font:inherit;font-weight:700;font-size:15px;background:#f3ead8;color:#0b1220;border:0;border-radius:999px;padding:9px 16px;cursor:pointer}
+button:hover{filter:brightness(1.08)}
+button:disabled{opacity:.4;cursor:default}
+#seek{flex:1 1 180px;accent-color:#ffd27a;min-width:120px}
+#time{font-variant-numeric:tabular-nums;font-size:14px;min-width:96px;text-align:center;direction:ltr}
+#rec{background:#ffd27a}
+#hint{margin:0;font-size:13px;opacity:.75;text-align:center;width:min(calc(100vw - 24px),560px)}
+#dl{color:#ffd27a;font-weight:700;margin-inline-start:8px}
 </style>
 </head>
 <body>
-<canvas id="scene"></canvas>
+<div id="stage"><canvas id="scene" width="1080" height="1920"></canvas></div>
+<div id="ui">
+  <button id="play" type="button">▶ تشغيل</button>
+  <button id="restart" type="button">↺ من البداية</button>
+  <input id="seek" type="range" min="0" max="1000" value="0" aria-label="شريط التقدم">
+  <span id="time">0:00 / 0:35</span>
+  <button id="rec" type="button">⏺ تصدير الفيديو</button>
+</div>
+<p id="hint">مسافة: تشغيل/إيقاف · مدة المشهد 35 ثانية · بصيغة 9:16 للجوال <a id="dl" hidden></a></p>
+
 <script>
-const c=document.getElementById("scene");
-const ctx=c.getContext("2d");
-let w,h,t=0,particles=[];
-const seasons=[
- {name:"الربيع",sky:"#91dcff",ground:"#58a85b",leaf:"#27a65b",items:["🌸","🌼","🦋"]},
- {name:"الصيف",sky:"#42b8f5",ground:"#9bcf58",leaf:"#238447",items:["☀️","🌻","✨"]},
- {name:"الخريف",sky:"#f5bd87",ground:"#bd8047",leaf:"#d87928",items:["🍂","🍁","🍃"]},
- {name:"الشتاء",sky:"#a8cde8",ground:"#eaf5ff",leaf:"#b9dce9",items:["❄","❅","❄"]}
+(() => {
+"use strict";
+
+/* ================= الإعدادات والأدوات ================= */
+const W = 1080, H = 1920, TAU = Math.PI * 2;
+const cv = document.getElementById("scene");
+const g = cv.getContext("2d");
+
+const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const prog = (t, s, d) => clamp((t - s) / d);
+const easeOut = t => 1 - Math.pow(1 - clamp(t), 3);
+const easeIO = t => { t = clamp(t); return t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; };
+
+// مولّد أرقام عشوائية ثابت (حتى تكون المشاهد متطابقة في كل تشغيل)
+function rng(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+// مزج لونين بالسِّت عشري
+function mix(c1, c2, t) {
+  const p = h => [1, 3, 5].map(i => parseInt(h.substr(i, 2), 16));
+  const A = p(c1), B = p(c2);
+  return "rgb(" + A.map((v, i) => Math.round(lerp(v, B[i], clamp(t)))).join(",") + ")";
+}
+// جسيمات بحركة تعتمد على الزمن فقط (تعمل بشكل صحيح مع التقديم والتمرير)
+function parts(seed, n, o) {
+  const r = rng(seed);
+  return Array.from({ length: n }, () => ({
+    x0: r(), y0: r(), sp: lerp(o.sp[0], o.sp[1], r()), ph: r() * TAU,
+    am: o.am * (.5 + r()), sz: lerp(o.sz[0], o.sz[1], r()),
+    rot: r() * TAU, rs: (r() - .5) * 3,
+    c: o.c[Math.floor(r() * o.c.length)], a: .6 + r() * .4, f: !!o.flake
+  }));
+}
+function fall(p, lt) {
+  const yy = ((p.y0 + lt * p.sp) % 1 + 1) % 1;
+  return {
+    x: (((p.x0 + Math.sin(lt * .8 + p.ph) * p.am) % 1) + 1) % 1 * W,
+    y: (-.05 + yy * 1.1) * H
+  };
+}
+
+/* ================= عناصر الرسم ================= */
+function txt(s, x, y, font, color, alpha = 1, shadow = null) {
+  g.save();
+  g.globalAlpha = alpha; g.font = font; g.fillStyle = color;
+  g.textAlign = "center"; g.textBaseline = "middle";
+  if (shadow) { g.shadowColor = shadow; g.shadowBlur = 28; g.shadowOffsetY = 6; }
+  g.fillText(s, x, y);
+  g.restore();
+}
+function sky(stops) {
+  const gr = g.createLinearGradient(0, 0, 0, H);
+  for (const [o, c] of stops) gr.addColorStop(o, c);
+  g.fillStyle = gr; g.fillRect(0, 0, W, H);
+}
+function sun(x, y, r, halo = "rgba(255,236,170,.9)", core = "#fff6c2", a = 1) {
+  g.save();
+  g.globalAlpha = a;
+  const gr = g.createRadialGradient(x, y, r * .6, x, y, r * 3.4);
+  gr.addColorStop(0, halo);
+  gr.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = gr;
+  g.beginPath(); g.arc(x, y, r * 3.4, 0, TAU); g.fill();
+  g.fillStyle = core;
+  g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill();
+  g.restore();
+}
+function cloud(x, y, s, a = .85) {
+  g.save();
+  g.globalAlpha = a; g.fillStyle = "#ffffff";
+  g.beginPath();
+  g.arc(x, y, 44 * s, 0, TAU);
+  g.arc(x + 48 * s, y - 20 * s, 58 * s, 0, TAU);
+  g.arc(x + 102 * s, y, 42 * s, 0, TAU);
+  g.arc(x + 52 * s, y + 10 * s, 50 * s, 0, TAU);
+  g.fill();
+  g.restore();
+}
+function drift(i, lt, spd, y, s, a) {
+  const x = ((i * .31 + lt * spd) % 1.4) * (W + 500) - 250;
+  cloud(x, y, s, a);
+}
+// تلّ موجي
+function hill(y0, amp, freq, ph, col, lt = 0, spd = 0) {
+  g.fillStyle = col;
+  g.beginPath(); g.moveTo(0, H);
+  for (let x = 0; x <= W; x += 12) {
+    const y = y0 + Math.sin(x * freq + ph + lt * spd) * amp + Math.sin(x * freq * 2.1 + ph * 2) * amp * .3;
+    g.lineTo(x, y);
+  }
+  g.lineTo(W, H); g.closePath(); g.fill();
+}
+// شجرة صنوبر
+function pine(x, y, h, col) {
+  g.fillStyle = col;
+  for (let j = 0; j < 3; j++) {
+    const top = y - h + j * h * .3, bot = top + h * .55, w = h * (.32 - j * .06);
+    g.beginPath(); g.moveTo(x, top); g.lineTo(x + w, bot); g.lineTo(x - w, bot); g.closePath(); g.fill();
+  }
+  g.fillRect(x - h * .04, y - h * .08, h * .08, h * .1);
+}
+// ورقة
+function leaf(x, y, s, rot, col, a = 1) {
+  g.save();
+  g.translate(x, y); g.rotate(rot); g.globalAlpha = a; g.fillStyle = col;
+  g.beginPath();
+  g.moveTo(0, -s);
+  g.quadraticCurveTo(s * .85, -s * .35, 0, s);
+  g.quadraticCurveTo(-s * .85, -s * .35, 0, -s);
+  g.fill();
+  g.strokeStyle = "rgba(255,255,255,.35)"; g.lineWidth = Math.max(1, s * .08);
+  g.beginPath(); g.moveTo(0, -s * .9); g.lineTo(0, s * .8); g.stroke();
+  g.restore();
+}
+// بتلة زهرة / ورقة ساقطة
+function petal(q, p, lt) {
+  g.save();
+  g.translate(q.x, q.y); g.rotate(p.rot + lt * p.rs);
+  g.globalAlpha = p.a; g.fillStyle = p.c;
+  g.beginPath(); g.ellipse(0, 0, p.sz, p.sz * .55, 0, 0, TAU); g.fill();
+  g.restore();
+}
+// ندفة ثلج بستة أذرع
+function flake(x, y, s, rot, a) {
+  g.save();
+  g.translate(x, y); g.rotate(rot); g.globalAlpha = a;
+  g.strokeStyle = "#ffffff"; g.lineWidth = Math.max(1.5, s * .12); g.lineCap = "round";
+  for (let i = 0; i < 6; i++) {
+    g.rotate(TAU / 6);
+    g.beginPath();
+    g.moveTo(0, 0); g.lineTo(0, -s);
+    g.moveTo(0, -s * .55); g.lineTo(s * .3, -s * .8);
+    g.moveTo(0, -s * .55); g.lineTo(-s * .3, -s * .8);
+    g.stroke();
+  }
+  g.restore();
+}
+// طائر بسيط
+function bird(x, y, s, a = .75) {
+  g.save();
+  g.strokeStyle = "#1d3f57"; g.lineWidth = 3; g.globalAlpha = a; g.lineCap = "round";
+  g.beginPath();
+  g.moveTo(x - s, y - s * .4);
+  g.quadraticCurveTo(x - s * .5, y - s * .9, x, y);
+  g.quadraticCurveTo(x + s * .5, y - s * .9, x + s, y - s * .4);
+  g.stroke();
+  g.restore();
+}
+// فراشة مع رفرفة
+function butterfly(bx, by, s, c, flap) {
+  g.save();
+  g.translate(bx, by); g.fillStyle = c; g.globalAlpha = .95;
+  for (const sd of [-1, 1]) {
+    g.save(); g.scale(sd, 1);
+    g.beginPath(); g.ellipse(s * .55, -s * .2, s * .55 * flap + 1, s * .45, -.3, 0, TAU); g.fill();
+    g.restore();
+  }
+  g.fillStyle = "#3a2a2a"; g.fillRect(-s * .05, -s * .4, s * .1, s * .9);
+  g.restore();
+}
+// زهرة ربيعية بساق
+function flower(f, lt, grow) {
+  const sw = Math.sin(lt * 1.1 + f.ph) * f.s * .25;
+  const topX = f.x + sw, topY = f.y - f.s * 2.4 * grow;
+  g.save();
+  g.strokeStyle = "#3f9a4a"; g.lineWidth = 5;
+  g.beginPath(); g.moveTo(f.x, H); g.quadraticCurveTo(f.x, (f.y + topY) / 2, topX, topY); g.stroke();
+  g.translate(topX, topY); g.rotate(sw * .02);
+  for (let i = 0; i < 5; i++) {
+    g.rotate(TAU / 5);
+    g.fillStyle = f.c;
+    g.beginPath(); g.ellipse(0, -f.s * .45 * grow, f.s * .32 * grow, f.s * .46 * grow, 0, 0, TAU); g.fill();
+  }
+  g.fillStyle = "#ffd54a";
+  g.beginPath(); g.arc(0, 0, f.s * .22 * grow, 0, TAU); g.fill();
+  g.restore();
+}
+// شجرة بفروع مُنشأة مسبقاً (ثابتة البنية) مع إزهار وتمايل
+function makeTree(seed, x, y, len, depth) {
+  const r = rng(seed), segs = [], tips = [];
+  (function grow(x0, y0, l, a, d, w) {
+    const x1 = x0 + Math.cos(a) * l, y1 = y0 + Math.sin(a) * l;
+    segs.push({ x1: x0, y1: y0, x2: x1, y2: y1, w });
+    if (d === 0) {
+      for (let i = 0; i < 4; i++) tips.push({ x: x1 + (r() - .5) * 150, y: y1 + (r() - .5) * 110, s: 22 + r() * 18, k: r() });
+      return;
+    }
+    const n = d > 2 ? 3 : 2;
+    for (let i = 0; i < n; i++)
+      grow(x1, y1, l * (.68 + r() * .12), a + (i - (n - 1) / 2) * (.45 + r() * .35) + (r() - .5) * .25, d - 1, w * .7);
+  })(x, y, len, -Math.PI / 2, depth, depth * 4 + 6);
+  return { segs, tips, base: { x, y }, ph: r() * TAU };
+}
+function drawTree(tr, lt, bloom, trunk, cols, size = 1) {
+  g.save();
+  const b = tr.base;
+  g.translate(b.x, b.y); g.rotate(Math.sin(lt * .8 + tr.ph) * .012); g.translate(-b.x, -b.y);
+  g.strokeStyle = trunk; g.lineCap = "round";
+  for (const s of tr.segs) {
+    g.lineWidth = s.w;
+    g.beginPath(); g.moveTo(s.x1, s.y1); g.lineTo(s.x2, s.y2); g.stroke();
+  }
+  if (bloom > 0) tr.tips.forEach((p, i) => {
+    const q = clamp(bloom * 1.6 - p.k * .6);
+    if (q <= 0) return;
+    const r = p.s * size * easeOut(q);
+    g.globalAlpha = q; g.fillStyle = cols[i % cols.length];
+    g.beginPath();
+    g.arc(p.x, p.y, r, 0, TAU);
+    g.arc(p.x + r * .8, p.y - r * .2, r * .8, 0, TAU);
+    g.arc(p.x - r * .7, p.y - r * .3, r * .75, 0, TAU);
+    g.fill();
+  });
+  g.restore();
+}
+// مظلة شاطئ
+function umbrella(x, y, r) {
+  g.save();
+  g.strokeStyle = "#ffffff"; g.lineWidth = 7;
+  g.beginPath(); g.moveTo(x, y); g.lineTo(x, y + 200); g.stroke();
+  for (let i = 0; i < 6; i++) {
+    g.fillStyle = i % 2 ? "#ffffff" : "#ff5d73";
+    g.beginPath(); g.moveTo(x, y);
+    g.arc(x, y, r, Math.PI + i * Math.PI / 6, Math.PI + (i + 1) * Math.PI / 6);
+    g.closePath(); g.fill();
+  }
+  g.restore();
+}
+// نقاط مؤشّر الفصل
+function dots(idx, a) {
+  for (let i = 0; i < 4; i++) {
+    const x = W / 2 + (i - 1.5) * 46, y = H - 86, on = i === idx;
+    g.save();
+    g.globalAlpha = a * (on ? 1 : .5);
+    g.fillStyle = on ? "#ffd27a" : "#ffffff";
+    g.strokeStyle = "rgba(0,0,0,.35)"; g.lineWidth = 2;
+    g.beginPath(); g.arc(x, y, on ? 11 : 8, 0, TAU); g.fill(); g.stroke();
+    g.restore();
+  }
+}
+// تدرّج داكن للإضاءة والوضوح
+function vignette() {
+  const gr = g.createRadialGradient(W / 2, H / 2, H * .3, W / 2, H / 2, H * .78);
+  gr.addColorStop(0, "rgba(0,0,0,0)"); gr.addColorStop(1, "rgba(0,0,0,.4)");
+  g.fillStyle = gr; g.fillRect(0, 0, W, H);
+  const top = g.createLinearGradient(0, 0, 0, H * .42);
+  top.addColorStop(0, "rgba(0,0,0,.28)"); top.addColorStop(1, "rgba(0,0,0,0)");
+  g.fillStyle = top; g.fillRect(0, 0, W, H * .42);
+}
+// عنوان الفصل مع حركة دخول سينمائية
+function seasonTitle(lt, n, title, sub, color, shadow) {
+  const a = easeOut(prog(lt, .25, 1)), y = lerp(40, 0, a);
+  txt("الفصل " + ["١", "٢", "٣", "٤"][n - 1], W / 2, 330 + y, "700 40px Cairo", "#ffe7a3", a, "rgba(0,0,0,.45)");
+  const lw = 220 * easeOut(prog(lt, .7, 1.1));
+  g.save(); g.globalAlpha = a; g.fillStyle = "#ffd27a";
+  g.fillRect(W / 2 - lw / 2, 380 + y, lw, 4); g.restore();
+  const b = easeOut(prog(lt, .9, 1.1));
+  txt(title, W / 2, 500 + lerp(50, 0, b), "900 180px Cairo", color, b, shadow);
+  const c = easeOut(prog(lt, 1.5, 1.2));
+  txt(sub, W / 2, 650 + lerp(30, 0, c), "400 46px Cairo", "#ffffff", c, "rgba(0,0,0,.4)");
+}
+
+/* ================= بيانات المشاهد (ثابتة) ================= */
+const ICONS = [["spring", "الربيع", "#ff9dc3"], ["summer", "الصيف", "#ffd54a"], ["autumn", "الخريف", "#f3872a"], ["winter", "الشتاء", "#bfe6ff"]];
+
+// أيقونات الفصول
+function icon(type, x, y, s) {
+  g.save(); g.translate(x, y);
+  if (type === "spring") {
+    for (let i = 0; i < 5; i++) {
+      g.rotate(TAU / 5); g.fillStyle = "#ffc2d9";
+      g.beginPath(); g.ellipse(0, -s * .5, s * .3, s * .48, 0, 0, TAU); g.fill();
+    }
+    g.fillStyle = "#ffd54a"; g.beginPath(); g.arc(0, 0, s * .22, 0, TAU); g.fill();
+  } else if (type === "summer") {
+    g.fillStyle = "#ffd54a"; g.beginPath(); g.arc(0, 0, s * .5, 0, TAU); g.fill();
+    g.strokeStyle = "#ffd54a"; g.lineWidth = s * .12; g.lineCap = "round";
+    for (let i = 0; i < 8; i++) {
+      g.rotate(TAU / 8);
+      g.beginPath(); g.moveTo(0, -s * .7); g.lineTo(0, -s * .95); g.stroke();
+    }
+  } else if (type === "autumn") {
+    g.rotate(-.5); g.fillStyle = "#f3872a";
+    g.beginPath(); g.moveTo(0, -s); g.quadraticCurveTo(s * .9, -s * .3, 0, s * .9); g.quadraticCurveTo(-s * .9, -s * .3, 0, -s); g.fill();
+    g.strokeStyle = "#8a3d12"; g.lineWidth = s * .08;
+    g.beginPath(); g.moveTo(0, -s * .9); g.lineTo(0, s * 1.1); g.stroke();
+  } else {
+    g.strokeStyle = "#e8f6ff"; g.lineWidth = s * .12; g.lineCap = "round";
+    for (let i = 0; i < 6; i++) {
+      g.rotate(TAU / 6);
+      g.beginPath(); g.moveTo(0, 0); g.lineTo(0, -s);
+      g.moveTo(0, -s * .55); g.lineTo(s * .3, -s * .8);
+      g.moveTo(0, -s * .55); g.lineTo(-s * .3, -s * .8);
+      g.stroke();
+    }
+  }
+  g.restore();
+}
+
+const IN_STARS = (() => { const r = rng(7); return Array.from({ length: 150 }, () => ({ x: r() * W, y: r() * H * .6, s: .8 + r() * 2.2, p: r() * TAU, sp: .6 + r() * 1.8 })); })();
+
+// الربيع
+const SP_TREES = [makeTree(11, W * .16, H * .8, 150, 4), makeTree(12, W * .9, H * .82, 165, 4)];
+const SP_FLOWERS = (() => { const r = rng(21); return Array.from({ length: 16 }, (_, i) => ({ x: W * (i / 15) + (r() - .5) * 70, y: H * (.86 + r() * .1), s: 30 + r() * 24, ph: r() * TAU, c: ["#ff8fb1", "#ffd1e0", "#fff2a0", "#ffffff"][i % 4] })); })();
+const SP_PETALS = parts(31, 50, { sp: [.035, .06], am: .03, sz: [7, 13], c: ["#ffc2d9", "#ff9cc0", "#ffffff"] });
+const SP_FLY = [{ ph: 0, c: "#ffb347" }, { ph: 2.4, c: "#ff7eb3" }, { ph: 4.1, c: "#9fd8ff" }];
+
+// الصيف
+const SU_BIRDS = Array.from({ length: 6 }, (_, i) => ({ o: i * .21, y: .3 + (i % 3) * .035, s: 16 + (i % 2) * 8 }));
+const SU_SPARK = (() => { const r = rng(44); return Array.from({ length: 40 }, () => ({ x: r(), y: H * (.64 + r() * .14), p: r() * TAU, sp: 1 + r() * 2, s: 2 + r() * 3 })); })();
+
+// الخريف
+const AU_TREES = [makeTree(31, W * .1, H * .8, 150, 4), makeTree(32, W * .5, H * .84, 175, 4), makeTree(33, W * .92, H * .8, 150, 4)];
+const AU_LEAVES = parts(41, 46, { sp: [.03, .05], am: .04, sz: [12, 22], c: ["#e4572e", "#f3a712", "#c1440e", "#ffb703", "#d9622b"] });
+
+// الشتاء
+const WI_STARS = (() => { const r = rng(55); return Array.from({ length: 70 }, () => ({ x: r() * W, y: r() * H * .45, s: .8 + r() * 2, p: r() * TAU, sp: .8 + r() * 2 })); })();
+const WI_BACK = (() => { const r = rng(61); return Array.from({ length: 8 }, (_, i) => ({ x: W * (i / 7) + (r() - .5) * 80, y: H * .72 + (r() - .5) * 30, h: 110 + r() * 60, c: "#3b6b78" })); })();
+const WI_FRONT = (() => { const r = rng(62); return Array.from({ length: 4 }, (_, i) => ({ x: W * (.08 + i * .3) + (r() - .5) * 60, y: H * .93 + r() * 20, h: 260 + r() * 70, c: "#183a44" })); })();
+const WI_SNOW = [
+  ...parts(51, 80, { sp: [.02, .04], am: .02, sz: [1.5, 3], c: ["#ffffff"] }),
+  ...parts(52, 50, { sp: [.04, .06], am: .03, sz: [3, 5], c: ["#ffffff"] }),
+  ...parts(53, 22, { sp: [.07, .1], am: .04, sz: [5, 8], c: ["#ffffff"], flake: true })
 ];
-function resize(){
- w=c.width=innerWidth*devicePixelRatio;
- h=c.height=innerHeight*devicePixelRatio;
- ctx.setTransform(1,0,0,1,0,0);
+
+// الإطار الافتتاحي والختامي
+function drawIntro(lt) {
+  const k = easeIO(prog(lt, 0, 4.2));
+  const gr = g.createLinearGradient(0, 0, 0, H);
+  gr.addColorStop(0, mix("#06101f", "#3a86c4", k));
+  gr.addColorStop(.6, mix("#121a3a", "#ffb98a", k));
+  gr.addColorStop(1, mix("#0a0c18", "#ffe6b8", k));
+  g.fillStyle = gr; g.fillRect(0, 0, W, H);
+
+  IN_STARS.forEach(s => {
+    g.globalAlpha = (.4 + .6 * Math.sin(lt * s.sp + s.p)) * (1 - k);
+    g.fillStyle = "#fff"; g.beginPath(); g.arc(s.x, s.y, s.s, 0, TAU); g.fill();
+  });
+  g.globalAlpha = 1;
+
+  sun(W / 2, lerp(H * 1.05, H * .5, easeOut(prog(lt, .2, 4.2))), 150, "rgba(255,220,150,.9)", "#fff1c4", 1);
+  hill(H * .8, 30, .0035, 0, mix("#1b2a4a", "#2d5a58", k), lt, .03);
+  hill(H * .88, 22, .005, 2, mix("#0c1424", "#1f4a3c", k), lt, 0);
+
+  const a = easeOut(prog(lt, 1.3, 1.1));
+  txt("فصول السنة", W / 2, H * .2 + lerp(40, 0, a), "900 120px Cairo", "#ffffff", a, "rgba(0,0,0,.4)");
+  const b = easeOut(prog(lt, 1.9, 1.1));
+  txt("الأربعة", W / 2, H * .2 + 150 + lerp(40, 0, b), "900 150px Cairo", "#ffd27a", b, "rgba(0,0,0,.4)");
+
+  ICONS.forEach((ic, i) => {
+    const x = W * (.2 + i * .2), c = easeOut(prog(lt, 2.8 + i * .25, .9));
+    if (c <= 0) return;
+    g.save(); g.globalAlpha = c;
+    g.translate(x, H * .66); g.scale(lerp(.6, 1, c), lerp(.6, 1, c));
+    icon(ic[0], 0, 0, 64);
+    g.restore();
+    txt(ic[1], x, H * .66 + 130 + lerp(20, 0, c), "700 40px Cairo", "#ffffff", c, "rgba(0,0,0,.4)");
+  });
 }
-addEventListener("resize",resize);resize();
-for(let i=0;i<65;i++)particles.push({
- x:Math.random(),y:Math.random(),
- s:Math.random()*22+8,v:Math.random()*.0015+.0005
+
+function drawOutro(lt) {
+  const gr = g.createLinearGradient(0, 0, 0, H);
+  gr.addColorStop(0, "#0b1430"); gr.addColorStop(1, "#2a2046");
+  g.fillStyle = gr; g.fillRect(0, 0, W, H);
+  IN_STARS.slice(0, 90).forEach(s => {
+    g.globalAlpha = .3 + .4 * Math.sin(lt * s.sp + s.p);
+    g.fillStyle = "#fff"; g.beginPath(); g.arc(s.x, s.y, s.s, 0, TAU); g.fill();
+  });
+  g.globalAlpha = 1;
+
+  g.save();
+  g.translate(W / 2, H * .5); g.rotate(lt * .15);
+  g.strokeStyle = "rgba(255,210,122,.35)"; g.lineWidth = 3; g.setLineDash([14, 18]);
+  g.beginPath(); g.arc(0, 0, W * .38, 0, TAU); g.stroke();
+  g.restore();
+
+  txt("فصول السنة الأربعة", W / 2, H * .2, "900 96px Cairo", "#ffffff", easeOut(prog(lt, .2, 1)), "rgba(0,0,0,.4)");
+
+  const pos = [[.3, .4], [.7, .4], [.3, .62], [.7, .62]];
+  ICONS.forEach((ic, i) => {
+    const c = easeOut(prog(lt, .4 + i * .3, 1));
+    if (c <= 0) return;
+    const x = W * pos[i][0], y = H * pos[i][1];
+    const pulse = 1 + Math.sin(lt * 2 + i) * .03;
+    g.save(); g.globalAlpha = c;
+    g.translate(x, y); g.scale(lerp(.5, 1, c) * pulse, lerp(.5, 1, c) * pulse);
+    icon(ic[0], 0, 0, 100);
+    g.restore();
+    txt(ic[1], x, y + lerp(150, 170, c), "700 44px Cairo", "#ffffff", c, "rgba(0,0,0,.4)");
+  });
+
+  txt("شكرًا للمشاهدة", W / 2, H * .85, "900 100px Cairo", "#ffd27a", easeOut(prog(lt, 3, 1.2)), "rgba(0,0,0,.4)");
+}
+
+// الربيع
+function drawSpring(lt) {
+  sky([[0, "#73c7ff"], [.5, "#c9eeff"], [.85, "#ffe3ee"], [1, "#fff3dc"]]);
+  sun(W * .8, H * .2, 64, "rgba(255,246,200,.9)", "#fffbe6", .95);
+  drift(0, lt, .012, H * .12, 1.1, .9);
+  drift(1, lt, .01, H * .22, .8, .85);
+  drift(2, lt, .014, H * .08, .9, .8);
+  hill(H * .66, 30, .004, 0, "#a8e29a", lt, .05);
+  hill(H * .74, 36, .006, 2, "#7fd08a", lt, .08);
+  SP_TREES.forEach((tr, i) => drawTree(tr, lt, easeOut(prog(lt, .7 + i * .4, 3.2)), "#7b5137", ["#ffd6e4", "#ff9dc3", "#ffffff", "#ffc2d8"]));
+  hill(H * .84, 22, .005, 1, "#5cb866", lt, .02);
+  SP_FLOWERS.forEach((f, i) => flower(f, lt, easeOut(prog(lt, .3 + i * .08, 1.4))));
+  SP_FLY.forEach((b, i) => {
+    const bx = W * .5 + Math.cos(lt * .4 + b.ph) * W * .36;
+    const by = H * .52 + Math.sin(lt * .8 + b.ph * 1.3) * 90 + i * 40;
+    butterfly(bx, by, 26, b.c, .25 + .75 * Math.abs(Math.sin(lt * 14 + i)));
+  });
+  SP_PETALS.forEach(p => petal(fall(p, lt), p, lt));
+  vignette();
+  seasonTitle(lt, 1, "الربيع", "زهور تتفتح وأنفاس دافئة", "#ffffff", "rgba(20,60,90,.55)");
+  dots(0, easeOut(prog(lt, .5, .8)));
+}
+
+// الصيف
+function drawSummer(lt) {
+  sky([[0, "#1679d8"], [.42, "#4fbcf2"], [.66, "#b8ecff"], [.78, "#ffeeb5"]]);
+  const sx = W * .74, sy = H * .2;
+  g.save();
+  g.translate(sx, sy); g.rotate(lt * .06); g.globalAlpha = .16; g.fillStyle = "#fff7c8";
+  for (let i = 0; i < 18; i++) {
+    g.rotate(TAU / 18);
+    g.beginPath(); g.moveTo(0, 0); g.lineTo(-40, 700); g.lineTo(40, 700); g.closePath(); g.fill();
+  }
+  g.restore();
+  sun(sx, sy, 88, "rgba(255,250,200,.95)", "#fffdf0", 1);
+  drift(0, lt, .012, H * .1, 1.2, .9);
+  drift(1, lt, .009, H * .3, .9, .8);
+  drift(2, lt, .015, H * .17, 1, .85);
+  hill(H * .58, 28, .0035, 0, "#5fbf9a", lt, .04);
+
+  const sea = g.createLinearGradient(0, H * .62, 0, H * .8);
+  sea.addColorStop(0, "#35c3e8"); sea.addColorStop(1, "#0d7fbf");
+  g.fillStyle = sea; g.fillRect(0, H * .62, W, H * .2);
+
+  g.save();
+  for (let i = 0; i < 18; i++) {
+    const y = H * .63 + i * 11;
+    const w = (120 - i * 5) * (.6 + .4 * Math.sin(lt * 2 + i * .9));
+    g.globalAlpha = .45 - i * .02; g.fillStyle = "#fff7d0";
+    g.fillRect(sx - w / 2, y, w, 4);
+  }
+  g.restore();
+
+  g.save(); g.strokeStyle = "rgba(255,255,255,.45)"; g.lineWidth = 3; g.lineCap = "round";
+  for (let i = 0; i < 12; i++) {
+    const y = H * .64 + i * H * .014;
+    for (let k = 0; k < 5; k++) {
+      const x0 = ((k * 260 + i * 90 + lt * (30 + i * 5)) % (W + 200)) - 100;
+      g.beginPath(); g.moveTo(x0, y); g.lineTo(x0 + 70, y); g.stroke();
+    }
+  }
+  g.restore();
+
+  SU_SPARK.forEach(s => {
+    const a = .5 + .5 * Math.sin(lt * s.sp + s.p);
+    if (a <= .6) return;
+    g.globalAlpha = (a - .6) * 2.5; g.fillStyle = "#ffffff";
+    g.beginPath(); g.arc(s.x * W, s.y, s.s, 0, TAU); g.fill();
+  });
+  g.globalAlpha = 1;
+
+  hill(H * .8, 14, .005, 0, "#f9e2a8", lt, .03);
+  g.fillStyle = "#f3cd82"; g.fillRect(0, H * .82, W, H * .18);
+  umbrella(W * .22, H * .84, 110);
+
+  SU_BIRDS.forEach(b => {
+    const u = (b.o + lt * .035) % 1.2;
+    bird(u * W - 60, H * b.y + Math.sin(lt * 2 + b.o * 9) * 10, b.s);
+  });
+
+  vignette();
+  seasonTitle(lt, 2, "الصيف", "شمس ساطعة وأيام طويلة", "#ffffff");
+  dots(1, easeOut(prog(lt, .5, .8)));
+}
+
+// الخريف
+function drawAutumn(lt) {
+  sky([[0, "#3c2f6b"], [.38, "#8a4f7a"], [.62, "#e0766a"], [.8, "#fca65c"], [1, "#ffd28f"]]);
+  sun(W * .3, H * .6, 150, "rgba(255,170,90,.85)", "#ffd08a", .95);
+  drift(0, lt, .01, H * .14, 1.1, .45);
+  drift(1, lt, .013, H * .26, .9, .4);
+  hill(H * .68, 26, .004, 0, "#b8703a", lt, .03);
+  AU_TREES.forEach((tr, i) => drawTree(tr, lt, easeOut(prog(lt, .6 + i * .35, 3)), "#4d2e1c", ["#e4572e", "#f3a712", "#c1440e", "#ffb703"], 2.1));
+  hill(H * .78, 22, .005, 2, "#8c4a25", lt, .02);
+  g.fillStyle = "#6e3a1a"; g.fillRect(0, H * .8, W, H * .2);
+  g.fillStyle = "#a86a36";
+  g.beginPath(); g.moveTo(W * .42, H * .8); g.lineTo(W * .58, H * .8); g.lineTo(W * 1.1, H); g.lineTo(-W * .1, H); g.closePath(); g.fill();
+  AU_LEAVES.forEach(p => { const q = fall(p, lt); leaf(q.x, q.y, p.sz, p.rot + lt * p.rs, p.c, p.a); });
+  vignette();
+  seasonTitle(lt, 3, "الخريف", "أوراق تتساقط بألوان الذهب", "#fff8ec", "rgba(60,20,10,.5)");
+  dots(2, easeOut(prog(lt, .5, .8)));
+}
+
+// الشتاء
+function drawWinter(lt) {
+  sky([[0, "#0a1a33"], [.45, "#2f5a85"], [.75, "#8fb8d8"], [1, "#e6f2fb"]]);
+  WI_STARS.forEach(s => {
+    g.globalAlpha = .3 + .4 * (.5 + .5 * Math.sin(lt * s.sp + s.p));
+    g.fillStyle = "#fff"; g.beginPath(); g.arc(s.x, s.y, s.s, 0, TAU); g.fill();
+  });
+  g.globalAlpha = 1;
+  sun(W * .8, H * .19, 62, "rgba(200,225,255,.55)", "#f2f7ff", 1);
+  drift(0, lt, .01, H * .3, 1, .35);
+  hill(H * .6, 30, .0032, 1, "#9dbdd9", lt, .03);
+  WI_BACK.forEach(p => pine(p.x, p.y, p.h, p.c));
+  hill(H * .74, 28, .0045, 0, "#eef7ff", lt, .02);
+  WI_FRONT.forEach(p => pine(p.x, p.y, p.h, p.c));
+  hill(H * .9, 16, .006, 3, "#ffffff", lt, 0);
+
+  WI_SNOW.forEach(p => {
+    const q = fall(p, lt);
+    if (p.f) flake(q.x, q.y, p.sz * 2.4, p.rot + lt * p.rs, p.a);
+    else { g.globalAlpha = p.a; g.fillStyle = "#ffffff"; g.beginPath(); g.arc(q.x, q.y, p.sz, 0, TAU); g.fill(); g.globalAlpha = 1; }
+  });
+  vignette();
+  seasonTitle(lt, 4, "الشتاء", "ثلوج تكسو الأرض بصمت", "#ffffff", "rgba(5,20,40,.55)");
+  dots(3, easeOut(prog(lt, .5, .8)));
+}
+
+/* ================= الجدول الزمني والانتقالات ================= */
+const SCENES = [
+  { dur: 5, draw: drawIntro },
+  { dur: 8, draw: drawSpring },
+  { dur: 8, draw: drawSummer },
+  { dur: 8, draw: drawAutumn },
+  { dur: 8, draw: drawWinter },
+  { dur: 5, draw: drawOutro }
+];
+const TR = 1.4; // مدة الانتقال بين المشاهد
+{
+  let acc = 0;
+  SCENES.forEach((s, i) => { s.start = acc; acc += s.dur - (i < SCENES.length - 1 ? TR : 0); });
+}
+const TOTAL = SCENES[SCENES.length - 1].start + SCENES[SCENES.length - 1].dur;
+
+// رسم مشهد مع حركة كاميرا بطيئة (Ken Burns)
+function renderScene(k, lt) {
+  const S = SCENES[k], z = 1 + .05 * clamp(lt / S.dur);
+  g.save();
+  g.translate(W / 2, H / 2); g.scale(z, z); g.translate(-W / 2, -H / 2);
+  S.draw(lt);
+  g.restore();
+}
+
+function renderAt(t) {
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.globalAlpha = 1; g.globalCompositeOperation = "source-over";
+  g.fillStyle = "#000"; g.fillRect(0, 0, W, H);
+
+  let k = 0;
+  SCENES.forEach((s, i) => { if (t >= s.start) k = i; });
+  const S = SCENES[k];
+
+  if (k > 0 && t < S.start + TR) {
+    // انتقال دائري (Iris) يكشف المشهد الجديد مع وهج على الحافة
+    const p = clamp((t - S.start) / TR), P = SCENES[k - 1];
+    renderScene(k - 1, t - P.start);
+    const cx = W / 2, cy = H * .5, R = Math.max(.01, Math.hypot(W, H) * .62 * easeIO(p));
+    g.save();
+    g.beginPath(); g.arc(cx, cy, R, 0, TAU); g.clip();
+    renderScene(k, t - S.start);
+    g.restore();
+    g.save();
+    g.globalCompositeOperation = "lighter";
+    g.strokeStyle = `rgba(255,220,160,${.9 * Math.sin(p * Math.PI)})`;
+    g.lineWidth = 14; g.shadowColor = "#ffd27a"; g.shadowBlur = 50;
+    g.beginPath(); g.arc(cx, cy, R, 0, TAU); g.stroke();
+    g.restore();
+  } else {
+    renderScene(k, t - S.start);
+  }
+}
+
+/* ================= التشغيل والواجهة ================= */
+const $ = id => document.getElementById(id);
+const playBtn = $("play"), restartBtn = $("restart"), seek = $("seek");
+const timeEl = $("time"), recBtn = $("rec"), dl = $("dl");
+
+let t = 0, playing = false, last = performance.now();
+let recorder = null, chunks = [], recExt = "webm";
+
+// بدء من وقت محدد عبر الرابط: index.html#t=12
+const hm = location.hash.match(/t=([\d.]+)/);
+if (hm) t = clamp(parseFloat(hm[1]), 0, TOTAL);
+
+const fmt = s => { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
+
+function updateUI() {
+  if (document.activeElement !== seek) seek.value = Math.round(t / TOTAL * 1000);
+  timeEl.textContent = fmt(t) + " / " + fmt(TOTAL);
+  playBtn.textContent = playing ? "⏸ إيقاف" : "▶ تشغيل";
+}
+
+function frame(now) {
+  const dt = Math.min(.1, (now - last) / 1000);
+  last = now;
+  if (playing) {
+    t += dt;
+    if (t >= TOTAL) {
+      t = TOTAL; playing = false;
+      if (recorder && recorder.state !== "inactive") recorder.stop();
+    }
+  }
+  renderAt(t);
+  updateUI();
+  requestAnimationFrame(frame);
+}
+
+playBtn.onclick = () => { if (t >= TOTAL) t = 0; playing = !playing; };
+restartBtn.onclick = () => { t = 0; playing = true; };
+seek.oninput = () => { t = seek.value / 1000 * TOTAL; };
+document.addEventListener("keydown", e => {
+  if (e.code === "Space" && e.target.tagName !== "BUTTON") { e.preventDefault(); playBtn.click(); }
 });
-function draw(){
- t+=.004;
- let index=Math.floor(t/7)%4;
- let s=seasons[index];
- let f=(t%7)/7;
- ctx.clearRect(0,0,w,h);
- let g=ctx.createLinearGradient(0,0,0,h);
- g.addColorStop(0,s.sky);g.addColorStop(1,"#fff0d0");
- ctx.fillStyle=g;ctx.fillRect(0,0,w,h);
 
- let sunX=w*(.18+.64*f);
- ctx.beginPath();
- ctx.arc(sunX,h*.18,Math.min(w,h)*.055,0,Math.PI*2);
- ctx.fillStyle="#fff2a0";ctx.shadowBlur=40;
- ctx.shadowColor="#fff0a0";ctx.fill();ctx.shadowBlur=0;
-
- // الغيوم
- for(let i=0;i<5;i++){
- let x=((i*.25+t*.015)%1.3)*w-w*.1;
- ctx.fillStyle="#ffffff99";
- ctx.beginPath();
- ctx.ellipse(x,h*.17+i%2*h*.06,w*.07,h*.025,0,0,7);
- ctx.fill();
- }
-
- // الجبال
- ctx.fillStyle=s.ground;
- ctx.beginPath();ctx.moveTo(0,h*.72);
- for(let x=0;x<=w;x+=w/8){
- ctx.lineTo(x,h*(.63+Math.sin(x/w*9+t)*.045));
- }
- ctx.lineTo(w,h);ctx.lineTo(0,h);ctx.fill();
-
- // الأشجار
- for(let i=0;i<7;i++){
- let x=w*(i/7+.04),base=h*.78;
- ctx.fillStyle="#78513a";
- ctx.fillRect(x-w*.008,base-h*.16,w*.016,h*.17);
- for(let j=0;j<3;j++){
- ctx.beginPath();
- ctx.arc(x,base-h*(.18+j*.045),w*.035,0,Math.PI*2);
- ctx.fillStyle=s.leaf;ctx.fill();
- }
- }
-
- // الجزيئات المتحركة
- for(let p of particles){
- p.y+=p.v*(index===3?1.3:1);
- p.x+=Math.sin(t+p.s)*.0003;
- if(p.y>1.1){p.y=-.05;p.x=Math.random();}
- ctx.font=`${p.s*devicePixelRatio}px Arial`;
- ctx.fillText(s.items[Math.floor(p.s)%s.items.length],
- p.x*w,p.y*h);
- }
-
- // عنوان الفصل
- ctx.textAlign="center";
- ctx.fillStyle="#ffffff";
- ctx.shadowBlur=12;ctx.shadowColor="#20384c";
- ctx.font=`bold ${Math.min(w*.09,64*devicePixelRatio)}px Arial`;
- ctx.fillText("فصل "+s.name,w/2,h*.43);
- ctx.shadowBlur=0;
- ctx.font=`${Math.min(w*.035,24*devicePixelRatio)}px Arial`;
- ctx.fillText("رحلة جميلة عبر الطبيعة والزمن",w/2,h*.50);
-
- requestAnimationFrame(draw);
+// تصدير الفيديو (WebM أو MP4 حسب دعم المتصفح)
+const MIME = ["video/mp4", "video/webm;codecs=vp9", "video/webm"]
+  .find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m));
+if (!MIME || !cv.captureStream) {
+  recBtn.disabled = true;
+  recBtn.title = "المتصفح لا يدعم تسجيل الفيديو مباشرة";
 }
-draw();
+recBtn.onclick = () => {
+  if (recorder && recorder.state !== "inactive") { recorder.stop(); return; }
+  const stream = cv.captureStream(30);
+  chunks = [];
+  recExt = MIME.startsWith("video/mp4") ? "mp4" : "webm";
+  recorder = new MediaRecorder(stream, { mimeType: MIME, videoBitsPerSecond: 8000000 });
+  recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+  recorder.onstop = () => {
+    const blob = new Blob(chunks, { type: MIME.split(";")[0] });
+    dl.href = URL.createObjectURL(blob);
+    dl.download = "seasons-9x16." + recExt;
+    dl.textContent = "⬇ تحميل الفيديو";
+    dl.hidden = false;
+    recBtn.textContent = "⏺ تصدير الفيديو";
+  };
+  t = 0; playing = true;
+  recBtn.textContent = "⏹ إيقاف التسجيل";
+  recorder.start(250);
+};
+
+// انتظار الخط العربي قبل بدء الحركة حتى لا تظهر العناوين بخط بديل
+renderAt(t);
+updateUI();
+const fontsReady = document.fonts
+  ? Promise.race([
+      Promise.all([
+        document.fonts.load("900 60px Cairo"),
+        document.fonts.load("700 40px Cairo"),
+        document.fonts.load("400 40px Cairo")
+      ]),
+      new Promise(r => setTimeout(r, 2500))
+    ])
+  : Promise.resolve();
+fontsReady.catch(() => {}).then(() => requestAnimationFrame(frame));
+})();
 </script>
 </body>
 </html>
