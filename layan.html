@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>البشارة - ليان</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#2a1f26;color:#fff8f0;font-family:"Cairo",Tahoma,Arial,sans-serif}
+body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:12px;min-height:100vh;min-height:100dvh}
+#stage{
+  width:min(calc(100vw - 24px), calc((100vh - 110px) * 9 / 16));
+  width:min(calc(100vw - 24px), calc((100dvh - 110px) * 9 / 16));
+  aspect-ratio:9/16;border-radius:18px;overflow:hidden;
+  box-shadow:0 20px 60px rgba(0,0,0,.4);
+}
+canvas{display:block;width:100%;height:100%}
+#go{font:inherit;font-weight:900;font-size:18px;color:#5a3a2e;background:#f6e3c2;border:0;border-radius:999px;padding:14px 30px;cursor:pointer;touch-action:manipulation}
+#go:disabled{opacity:.5;cursor:default}
+#note{margin:0;font-size:13px;opacity:.7;text-align:center}
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="scene" width="1080" height="1920"></canvas></div>
+<button id="go" type="button">▶ شغّل مع الصوت</button>
+<p id="note">يحتاج الصوت نقرة واحدة لأن المتصفح يمنع التشغيل التلقائي</p>
+
+<script>
+(() => {
+"use strict";
+
+const W = 1080, H = 1920, TAU = Math.PI * 2, DUR = 10;
+const cv = document.getElementById("scene");
+const g = cv.getContext("2d");
+const btn = document.getElementById("go");
+
+const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const prog = (t, s, d) => clamp((t - s) / d);
+const easeOut = t => 1 - Math.pow(1 - clamp(t), 3);
+function rng(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+// نافذة زمنية: تظهر ثم تتلاشى
+const win = (t, s, e) => clamp(Math.min(prog(t, s, .7), 1 - prog(t, e - .6, .6)));
+
+/* ================= العناصر البصرية ================= */
+const R = rng(5);
+const BOK = Array.from({ length: 22 }, () => ({
+  x: R() * W, y: R() * H, r: 40 + R() * 110, sp: .008 + R() * .02, ph: R() * TAU,
+  c: ["255,214,222", "255,236,196", "206,238,222"][Math.floor(R() * 3)]
+}));
+const HEARTS = Array.from({ length: 9 }, () => ({
+  x: R(), sp: .03 + R() * .03, ph: R(), s: 26 + R() * 30, c: ["#f4a7b9", "#f7c3cf", "#e9a0a8"][Math.floor(R() * 3)]
+}));
+const SPARKS = Array.from({ length: 30 }, () => ({
+  x: R(), sp: .05 + R() * .05, ph: R(), s: 3 + R() * 4, tw: R() * TAU
+}));
+const FLOWERS = [
+  { x: .12, y: .9, s: 150, c: "#f4b6c2", d: 0 },
+  { x: .88, y: .88, s: 170, c: "#f7c9b6", d: .25 },
+  { x: .04, y: .42, s: 110, c: "#f9d3dc", d: .5 },
+  { x: .96, y: .38, s: 120, c: "#f4b6c2", d: .7 },
+  { x: .5, y: .98, s: 200, c: "#fbdcd0", d: .9 }
+].map((f, i) => ({ ...f, ph: i * 1.3 }));
+
+function background(lt) {
+  const gr = g.createLinearGradient(0, 0, 0, H);
+  gr.addColorStop(0, "#fbe4e6"); gr.addColorStop(.55, "#ffeedf"); gr.addColorStop(1, "#f3e7d3");
+  g.fillStyle = gr; g.fillRect(0, 0, W, H);
+  // أشعة ذهبية ناعمة تتحرك ببطء
+  g.save(); g.globalCompositeOperation = "lighter";
+  for (let i = 0; i < 6; i++) {
+    const x = W * (.1 + i * .16) + Math.sin(lt * .3 + i) * 60;
+    const gg = g.createLinearGradient(x, 0, x + 200, H);
+    gg.addColorStop(0, "rgba(255,226,160,0)");
+    gg.addColorStop(.5, "rgba(255,226,160,.12)");
+    gg.addColorStop(1, "rgba(255,226,160,0)");
+    g.fillStyle = gg;
+    g.beginPath(); g.moveTo(x, 0); g.lineTo(x + 200, 0); g.lineTo(x + 420, H); g.lineTo(x + 220, H); g.closePath(); g.fill();
+  }
+  g.restore();
+}
+function bokeh(lt) {
+  BOK.forEach(b => {
+    const y = ((b.y / H - lt * b.sp) % 1 + 1) % 1 * H;
+    const x = b.x + Math.sin(lt * .5 + b.ph) * 40;
+    const gr = g.createRadialGradient(x, y, 0, x, y, b.r);
+    gr.addColorStop(0, `rgba(${b.c},.5)`);
+    gr.addColorStop(1, `rgba(${b.c},0)`);
+    g.fillStyle = gr;
+    g.beginPath(); g.arc(x, y, b.r, 0, TAU); g.fill();
+  });
+}
+function flower(f, lt) {
+  const gw = easeOut(prog(lt, f.d, 1.6));
+  if (gw <= 0) return;
+  g.save();
+  g.translate(f.x * W, f.y * H);
+  g.rotate(Math.sin(lt * .8 + f.ph) * .06);
+  g.scale(gw, gw);
+  for (let i = 0; i < 6; i++) {
+    g.rotate(TAU / 6);
+    g.fillStyle = f.c; g.globalAlpha = .9;
+    g.beginPath(); g.ellipse(0, -f.s * .5, f.s * .32, f.s * .5, 0, 0, TAU); g.fill();
+  }
+  g.globalAlpha = 1;
+  g.fillStyle = "#e8c27a";
+  g.beginPath(); g.arc(0, 0, f.s * .18, 0, TAU); g.fill();
+  g.restore();
+}
+function heart(x, y, s, a, c) {
+  g.save();
+  g.globalAlpha = a; g.fillStyle = c;
+  g.translate(x, y); g.scale(s / 10, s / 10);
+  g.beginPath();
+  g.moveTo(0, 3);
+  g.bezierCurveTo(-5, -2, -5, -6, 0, -3);
+  g.bezierCurveTo(5, -6, 5, -2, 0, 3);
+  g.fill();
+  g.restore();
+}
+function hearts(lt) {
+  HEARTS.forEach(h => {
+    const f = ((lt * h.sp + h.ph) % 1 + 1) % 1;
+    const y = H + 60 - f * (H + 120);
+    const x = h.x * W + Math.sin(lt * 1.2 + h.ph * 6) * 30;
+    heart(x, y, h.s, Math.sin(f * Math.PI) * .75, h.c);
+  });
+}
+function sparkles(lt) {
+  SPARKS.forEach(p => {
+    const f = ((lt * p.sp + p.ph) % 1 + 1) % 1;
+    const y = H * (1 - f);
+    const a = (.5 + .5 * Math.sin(lt * 3 + p.tw)) * Math.sin(f * Math.PI);
+    g.globalAlpha = clamp(a);
+    g.fillStyle = "#fff3c4";
+    g.beginPath(); g.arc(p.x * W, y, p.s, 0, TAU); g.fill();
+  });
+  g.globalAlpha = 1;
+}
+function txt(s, x, y, font, color, a, shadow) {
+  g.save();
+  g.globalAlpha = a; g.font = font; g.fillStyle = color;
+  g.textAlign = "center"; g.textBaseline = "middle";
+  if (shadow) { g.shadowColor = shadow; g.shadowBlur = 30; }
+  g.fillText(s, x, y);
+  g.restore();
+}
+
+/* ================= المشاهد الثلاثة ================= */
+function draw(lt) {
+  background(lt);
+  bokeh(lt);
+  FLOWERS.forEach(f => flower(f, lt));
+  hearts(lt);
+  sparkles(lt);
+
+  // المشهد 1: البشارة (0 – 3.2)
+  const a1 = win(lt, 0, 3.2);
+  const y1 = lerp(30, 0, easeOut(prog(lt, 0, 1.2)));
+  txt("جاتنا البشارة", W / 2, H * .36 + y1, "900 110px Cairo", "#7a4a55", a1, "rgba(255,255,255,.6)");
+  txt("يا هلا بشارة الخير", W / 2, H * .46 + y1, "700 60px Cairo", "#9a6470", a1, "rgba(255,255,255,.6)");
+
+  // المشهد 2: اسم ليان (3 – 7)
+  const a2 = win(lt, 3, 7);
+  const sc2 = lerp(.85, 1, easeOut(prog(lt, 3, 1.4)));
+  g.save();
+  g.translate(W / 2, H * .44); g.scale(sc2, sc2); g.translate(-W / 2, -H * .44);
+  const gold = g.createLinearGradient(0, H * .3, 0, H * .6);
+  gold.addColorStop(0, "#f8e3a4"); gold.addColorStop(.5, "#d4a85a"); gold.addColorStop(1, "#f3d48c");
+  txt("ليان", W / 2, H * .44, "900 300px Cairo", gold, a2, "rgba(190,130,60,.45)");
+  g.restore();
+  txt("المولودة الجديدة", W / 2, H * .56, "500 52px Cairo", "#8a5a4a", a2, "rgba(255,255,255,.6)");
+
+  // المشهد 3: الدعاء (7 – 10)
+  const a3 = win(lt, 7, DUR);
+  txt("اللهم أنبتها نباتاً حسناً", W / 2, H * .4, "700 64px Cairo", "#7a4a55", a3, "rgba(255,255,255,.6)");
+  txt("واجعلها قرة عين لوالديها", W / 2, H * .47, "700 64px Cairo", "#7a4a55", a3, "rgba(255,255,255,.6)");
+  txt("ليان", W / 2, H * .3, "900 90px Cairo", "#c8964a", a3 * .9, "rgba(255,255,255,.5)");
+
+  // لمسة تلاشي خفيفة على الحواف
+  const vg = g.createRadialGradient(W / 2, H / 2, H * .35, W / 2, H / 2, H * .8);
+  vg.addColorStop(0, "rgba(255,255,255,0)"); vg.addColorStop(1, "rgba(120,70,80,.18)");
+  g.fillStyle = vg; g.fillRect(0, 0, W, H);
+}
+
+/* ================= الصوت (مُولّد داخل الصفحة) ================= */
+let ac = null, t0 = 0;
+function startAudio() {
+  try {
+    ac = new (window.AudioContext || window.webkitAudioContext)();
+  } catch (e) { ac = null; return; }
+  const now = ac.currentTime + .05;
+  t0 = now;
+
+  const master = ac.createGain(); master.gain.value = .5;
+  const comp = ac.createDynamicsCompressor();
+  master.connect(comp); comp.connect(ac.destination);
+
+  // صدى ناعم
+  const delay = ac.createDelay(); delay.delayTime.value = .28;
+  const fb = ac.createGain(); fb.gain.value = .35;
+  const wet = ac.createGain(); wet.gain.value = .28;
+  delay.connect(fb); fb.connect(delay); delay.connect(wet); wet.connect(master);
+
+  const tone = (freq, start, dur, type, vol) => {
+    const o = ac.createOscillator(), gn = ac.createGain();
+    o.type = type; o.frequency.value = freq;
+    const s = now + start;
+    gn.gain.setValueAtTime(0, s);
+    gn.gain.linearRampToValueAtTime(vol, s + .012);
+    gn.gain.exponentialRampToValueAtTime(.0001, s + dur);
+    o.connect(gn); gn.connect(master); gn.connect(delay);
+    o.start(s); o.stop(s + dur + .05);
+  };
+
+  // المشهد 1: جرس ترحيبي
+  tone(1046.5, 0, 2.6, "sine", .18);
+  tone(1318.5, .12, 2.4, "sine", .11);
+  tone(1568, .26, 2.2, "sine", .09);
+
+  // المشهد 2: قيثارة بسلّم خماسي ناعم + وسادة هادئة
+  const notes = [523.25, 587.33, 659.25, 783.99, 880, 1046.5];
+  for (let i = 0; i < 12; i++) tone(notes[i % 6], 3 + i * .22, 1.8, "triangle", .12);
+  tone(261.63, 3, 6.5, "sine", .05);
+  tone(329.63, 3, 6.5, "sine", .04);
+
+  // المشهد 3: لمعان خفيف
+  for (let i = 0; i < 9; i++) tone(2400 + (i % 3) * 600, 7.2 + i * .26, .3, "sine", .045);
+
+  // نهاية ناعمة
+  tone(3136, 9.3, 1.3, "sine", .07);
+  master.gain.setValueAtTime(.5, now + 8.6);
+  master.gain.linearRampToValueAtTime(0, now + DUR);
+}
+
+/* ================= الحلقة والتحكم ================= */
+let lt = 0, playing = false;
+function loop() {
+  if (playing) {
+    lt = ac ? ac.currentTime - t0 : lt;
+    if (lt >= DUR) {
+      lt = DUR; playing = false;
+      btn.textContent = "↺ إعادة التشغيل";
+      btn.disabled = false;
+    }
+  }
+  draw(clamp(lt, 0, DUR));
+  requestAnimationFrame(loop);
+}
+
+btn.onclick = () => {
+  if (ac) { try { ac.close(); } catch (e) {} }
+  startAudio();
+  playing = true;
+  btn.textContent = "جارٍ التشغيل…";
+  btn.disabled = true;
+  if (!ac) { // بدون صوت: تشغيل بالزمن الحقيقي
+    const p0 = performance.now();
+    const tick = () => {
+      if (!playing) return;
+      lt = (performance.now() - p0) / 1000;
+      if (lt < DUR) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+};
+
+draw(0);
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
