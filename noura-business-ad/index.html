@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>NOURA – إعلان للشركات</title>
+<title>NOURA – عرض خدمات الدعوات والمواقع</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Tajawal:wght@300;400;500;700&display=swap" rel="stylesheet">
@@ -243,9 +243,9 @@ function makeFramed(src) {
 }
 
 const CONTACT = '';   // ضعي هنا رقم الواتساب أو اسم الحساب ليظهر في الإعلان، مثال: '+966 5XXXXXXXX'
-const HIT_TIMES = [.15, 1.0, 1.85, 25.0];          // لحظات الضربات التي ترجّ الشاشة
-const QS = ['حفل افتتاح؟', 'حفل توقيع؟', 'عشاء شركاء؟'];
-const BENEFITS = ['تصميم يليق باسم شركتك', 'هوية واحدة في كل تفاصيل المناسبة', 'ملفات جاهزة للطباعة والنشر'];
+const HIT_TIMES = [.15, 1.0, 1.85, 25.8];          // لحظات الضربات التي ترجّ الشاشة
+const QS = ['حفل زفاف؟', 'حفل تخرج؟', 'إعلان متجرك؟'];
+const BENEFITS = ['تصميم يحكي قصتكم', 'هوية واحدة لكل التفاصيل', 'موقع زفاف بتصميم دعوتكم'];
 
 let TX = null, READY = false;
 const WORK_IMGS = (window.NOURA_WORKS || []).map(src => { const im = new Image(); im.src = src; return im; });   // 0-2 دعوات، 3-6 إعلانات
@@ -260,7 +260,13 @@ function fitTex(img, w, h) {                       // التصميم كاملً�
 function buildTextures() {
   const W_ = i => WORK_IMGS[i];
   TX = {
-    hooks: [0, 1, 2].map(i => fitTex(W_(i), 560, 800)),
+    hooks: [0, 2, 3].map(i => fitTex(W_(i), 560, 800)),
+    site: (() => {                                    // صفحة موقع الزفاف: الدعوتان متتابعتان
+      const [c, g] = mk(880, 2500);
+      g.drawImage(fitTex(WORK_IMGS[0], 880, 1200), 0, 0);
+      g.drawImage(fitTex(WORK_IMGS[1], 880, 1300), 0, 1200);
+      return c;
+    })(),
     cards: [0, 1, 2, 3, 4, 5, 6].map(i => fitTex(W_(i), 620, 880))
   };
 }
@@ -269,9 +275,9 @@ function buildTextures() {
 function sceneHook(lt) {                           // 0 – 3.2 : افتتاح بالكلمات الضاربة
   ctx.fillStyle = '#2a0f18'; ctx.fillRect(0, 0, W, H);
   const L = [
-    ['شركتك', .15, H * .40, '800 240px Tajawal', '#f7f0e6'],
-    ['تستحق', 1.0, H * .57, '800 240px Tajawal', '#e2c388'],
-    ['دعوة تُذكر', 1.85, H * .74, '800 170px Tajawal', '#f7f0e6']
+    ['مناسبتك', .15, H * .40, '800 186px Tajawal', '#f7f0e6'],
+    ['تستحق', 1.0, H * .57, '800 186px Tajawal', '#e2c388'],
+    ['قصة تُروى', 1.85, H * .74, '800 150px Tajawal', '#f7f0e6']
   ];
   for (const [s, st, y, f, col] of L) {
     const sc = lerp(2.3, 1, easeOutBack(prog(lt, st, .4)));
@@ -310,12 +316,40 @@ function sceneLogo(lt) {                           // 7.9 – 11.2 : الشعا�
     sweep(lt, 1.1, 1.0, cx, cy, 640, 640 * LOGO.height / LOGO.width);
   }
   const r1 = reveal(lt, 1.0), r2 = reveal(lt, 1.6);
-  T('دعوات تليق بهيبة شركتك', W / 2, H * .74 + r1.dy, '800 84px Tajawal', C.ink, r1.a);
-  T('وتترك انطباعًا لا يُنسى', W / 2, H * .74 + 110 + r2.dy, '600 60px Tajawal', C.accent, r2.a);
+  T('نصمم لكم حكايتكم كاملة', W / 2, H * .74 + r1.dy, '800 80px Tajawal', C.ink, r1.a);
+  T('دعوة وموقع وإعلان بهوية واحدة', W / 2, H * .74 + 110 + r2.dy, '600 56px Tajawal', C.accent, r2.a);
+}
+
+function sceneSite(lt) {                         // 10.9 – 14.9 : موقع الزفاف يتمرّر
+  const w = 880, h = 1000, e = easeOut(prog(lt, 0, .9));
+  ctx.save();
+  ctx.globalAlpha *= smooth(prog(lt, 0, .4));
+  ctx.translate(W / 2, H * .56 + (1 - e) * 240);
+  ctx.scale(lerp(.92, 1, e), lerp(.92, 1, e));
+  ctx.shadowColor = 'rgba(42,15,24,.35)'; ctx.shadowBlur = 70; ctx.shadowOffsetY = 30;
+  ctx.fillStyle = '#ffffff'; rr(ctx, -w / 2, -h / 2, w, h, 36); ctx.fill();
+  ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+  ctx.save();
+  rr(ctx, -w / 2, -h / 2, w, h, 36); ctx.clip();
+  ctx.fillStyle = '#efe6dc'; ctx.fillRect(-w / 2, -h / 2, w, 90);
+  ['#e7a3a0', '#e2c388', '#b9d6b0'].forEach((col, i) => {
+    ctx.beginPath(); ctx.arc(-w / 2 + 40 + i * 34, -h / 2 + 45, 9, 0, Math.PI * 2); ctx.fillStyle = col; ctx.fill();
+  });
+  ctx.fillStyle = '#ffffff'; rr(ctx, -w / 2 + 170, -h / 2 + 25, w - 340, 40, 20); ctx.fill();
+  ctx.fillStyle = C.ink; ctx.font = '500 28px Tajawal'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('موقع زفافكم', 0, -h / 2 + 45);
+  const total = TX.site.height, view = h - 90, sc = easeIO(prog(lt, .9, 3.2));
+  ctx.beginPath(); ctx.rect(-w / 2, -h / 2 + 90, w, view); ctx.clip();
+  ctx.drawImage(TX.site, -w / 2, -h / 2 + 90 - (total - view) * sc, w, total);
+  ctx.restore();
+  ctx.restore();
+  const r1 = reveal(lt, .3), r2 = reveal(lt, .9);
+  T('حتى موقع زفافكم', W / 2, H * .15 + r1.dy, '800 80px Tajawal', C.ink, r1.a);
+  T('يحكي قصتكم بأناقة', W / 2, H * .15 + 110 + r2.dy, '600 56px Tajawal', C.accent, r2.a);
 }
 
 function sceneShowcase(lt) {                       // 10.9 – 18.1 : التصاميم تتتابع بعمق
-  const n = TX.cards.length, fp = Math.min(lt / .9, n - 1);
+  const n = TX.cards.length, fp = Math.min(lt / .8, n - 1);
   const cy = H * .56;
   const order = TX.cards.map((_, k) => k).sort((a, b) => Math.abs(b - fp) - Math.abs(a - fp));
   for (const k of order) {
@@ -334,13 +368,13 @@ function sceneShowcase(lt) {                       // 10.9 – 18.1 : التصا
     ctx.restore();
   }
   const r1 = reveal(lt, .2), r2 = reveal(lt, .8);
-  T('من الدعوة إلى الحملة', W / 2, H * .15 + r1.dy, '800 84px Tajawal', C.ink, r1.a);
-  T('كل تصميم يحمل هوية شركتك', W / 2, H * .15 + 110 + r2.dy, '600 56px Tajawal', C.accent, r2.a);
+  T('ومن الدعوة إلى الإعلان', W / 2, H * .15 + r1.dy, '800 80px Tajawal', C.ink, r1.a);
+  T('كل تصميم يحمل هويتكم', W / 2, H * .15 + 110 + r2.dy, '600 56px Tajawal', C.accent, r2.a);
 }
 
 function sceneBenefits(lt) {                       // 17.8 – 23.0 : ما الذي تحصل عليه الشركة
   const h = reveal(lt, 0, .6);
-  T('لماذا NOURA؟', W / 2, H * .15 + h.dy, '800 84px Tajawal', C.ink, h.a);
+  T('ماذا تحصلون عليه معنا؟', W / 2, H * .15 + h.dy, '800 74px Tajawal', C.ink, h.a);
   BENEFITS.forEach((s, i) => {
     const st = .4 + i * .9;
     const r = reveal(lt, st, .6);
@@ -382,7 +416,7 @@ function sceneCTA(lt) {                            // 22.8 – 28.2 : دعوة �
   ctx.shadowColor = 'rgba(91,31,46,.45)'; ctx.shadowBlur = 60; ctx.shadowOffsetY = 20;
   ctx.fillStyle = C.ink; rr(ctx, -bw / 2, -bh / 2, bw, bh, 60); ctx.fill();
   ctx.restore();
-  T('اطلب تصميمك الآن', cx, cy, '800 84px Tajawal', '#fff8f0', enter * smooth(prog(lt, .6, .3)), 0, bs);
+  T('احجزوا موعدكم الآن', cx, cy, '800 84px Tajawal', '#fff8f0', enter * smooth(prog(lt, .6, .3)), 0, bs);
   const r = reveal(lt, 1.2);
   T(CONTACT || 'تواصلي معنا الآن', cx, H * .66 + r.dy, '700 62px Tajawal', C.accent, r.a);
 }
@@ -398,16 +432,17 @@ function sceneEnd(lt) {                            // 27.8 – 30 : الختام
     ctx.restore();
   }
   const r = reveal(lt, 1.0);
-  T('دعوات مؤسسية تليق بشركتك', W / 2, H * .75 + r.dy, '800 74px Tajawal', C.ink, r.a);
+  T('يومكم يستحق أجمل حكاية', W / 2, H * .75 + r.dy, '800 70px Tajawal', C.ink, r.a);
 }
 
 const SCENES = [
   { a: 0,    b: 3.2,  fn: sceneHook },
   { a: 2.9,  b: 8.2,  fn: sceneQuestions },
   { a: 7.9,  b: 11.2, fn: sceneLogo },
-  { a: 10.9, b: 18.1, fn: sceneShowcase },
-  { a: 17.8, b: 23.0, fn: sceneBenefits },
-  { a: 22.8, b: 28.2, fn: sceneCTA },
+  { a: 10.9, b: 14.9, fn: sceneSite },
+  { a: 14.6, b: 20.4, fn: sceneShowcase },
+  { a: 20.0, b: 24.0, fn: sceneBenefits },
+  { a: 23.6, b: 28.2, fn: sceneCTA },
   { a: 27.8, b: DUR,  fn: sceneEnd }
 ];
 function sceneAlpha(t, s) {
@@ -422,7 +457,7 @@ function render(t) {
   for (const h of HIT_TIMES) {
     const d = t - h;
     if (d > 0 && d < .6) {
-      const a = (h === 25.0 ? 8 : 20) * Math.exp(-d * 8);
+      const a = (h === 25.8 ? 8 : 20) * Math.exp(-d * 8);
       sx += Math.sin(d * 70) * a; sy += Math.cos(d * 58) * a;
     }
   }
@@ -461,23 +496,25 @@ const CUES = [
   { t: 6.4, k: 'pop' },
   { t: 7.9, k: 'whoosh' },
   { t: 8.4, k: 'chime' },
-  { t: 11.8, k: 'ding' },
-  { t: 12.7, k: 'ding' },
-  { t: 13.6, k: 'ding' },
-  { t: 14.5, k: 'ding' },
-  { t: 15.4, k: 'ding' },
-  { t: 16.3, k: 'ding' },
-  { t: 17.2, k: 'ding' },
   { t: 10.9, k: 'whoosh' },
-  { t: 17.8, k: 'whoosh' },
-  { t: 18.3, k: 'pop' },
-  { t: 19.2, k: 'pop' },
-  { t: 20.1, k: 'pop' },
-  { t: 22.8, k: 'whoosh' },
-  { t: 23.3, k: 'pop' },
-  { t: 25.0, k: 'pop' },
-  { t: 25.0, k: 'ding' },
-  { t: 25.2, k: 'sparkle' },
+  { t: 11.4, k: 'ding' },
+  { t: 13.0, k: 'sparkle' },
+  { t: 14.6, k: 'whoosh' },
+  { t: 15.4, k: 'ding' },
+  { t: 16.2, k: 'ding' },
+  { t: 17.0, k: 'ding' },
+  { t: 17.8, k: 'ding' },
+  { t: 18.6, k: 'ding' },
+  { t: 19.4, k: 'ding' },
+  { t: 20.0, k: 'whoosh' },
+  { t: 20.4, k: 'pop' },
+  { t: 21.3, k: 'pop' },
+  { t: 22.2, k: 'pop' },
+  { t: 23.6, k: 'whoosh' },
+  { t: 24.1, k: 'pop' },
+  { t: 25.8, k: 'pop' },
+  { t: 25.8, k: 'ding' },
+  { t: 26.0, k: 'sparkle' },
   { t: 27.8, k: 'whoosh' },
   { t: 28.2, k: 'chime' },
   { t: 28.8, k: 'sparkle' },
