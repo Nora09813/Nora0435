@@ -47,6 +47,7 @@ button:disabled{opacity:.5;cursor:default}
 </div>
 
 <script src="assets/logo.js"></script>
+<script src="assets/works.js"></script>
 <script>
 /* ==========================================================
    NOURA – إعلان دعوات إلكترونية (30 ثانية · 1080×1920 · 30fps)
@@ -55,11 +56,6 @@ button:disabled{opacity:.5;cursor:default}
 
 const W = 1080, H = 1920, FPS = 30, DUR = 30;
 const C = { cream:'#f4e6d8', ivory:'#fbf3ea', rose:'#e9b8ae', gold:'#d9b77e', ink:'#3b1421' };
-const THEMES = {
-  rose:  { c1:'#fbefe6', c2:'#e9c7bb', ink:'#5b1f2e', gold:'#b58a4c' },
-  burg:  { c1:'#8a4454', c2:'#4f1b2a', ink:'#f6e7d8', gold:'#e2c388' },
-  ivory: { c1:'#fffaf4', c2:'#efdcc9', ink:'#3b1421', gold:'#c79b56' }
-};
 
 const $ = id => document.getElementById(id);
 const cv = $('c'), ctx = cv.getContext('2d');
@@ -219,52 +215,6 @@ function T(str, x, y, font, color, a, dy = 0, sc = 1) {
   ctx.restore();
 }
 
-/* ---------- تصميم الدعوات (تُبنى مرة واحدة كصور) ---------- */
-function makeInvite({ w, h, th, kicker, names, date, place }) {
-  const [c, g] = mk(w, h), t = THEMES[th];
-  const bg = g.createLinearGradient(0, 0, w, h);
-  bg.addColorStop(0, t.c1); bg.addColorStop(1, t.c2);
-  g.fillStyle = bg; g.fillRect(0, 0, w, h);
-  const sh = g.createRadialGradient(w * .5, h * .3, w * .05, w * .5, h * .3, w * .8);
-  sh.addColorStop(0, 'rgba(255,255,255,.18)'); sh.addColorStop(1, 'rgba(255,255,255,0)');
-  g.fillStyle = sh; g.fillRect(0, 0, w, h);
-  g.strokeStyle = t.gold; g.lineWidth = Math.max(2, w * .006);
-  g.strokeRect(w * .06, h * .035, w * .88, h * .93);
-  g.lineWidth = Math.max(1, w * .0016);
-  g.strokeRect(w * .078, h * .052, w * .844, h * .896);
-  g.lineWidth = Math.max(1.5, w * .004);
-  g.beginPath(); g.arc(w / 2, h * .25, w * .24, Math.PI, 0); g.stroke();
-  star4(g, w / 2, h * .25, w * .075); g.fillStyle = t.gold; g.fill();
-  g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.fillStyle = t.ink;
-  g.font = `400 ${w * .05}px Tajawal`; g.fillText(kicker, w / 2, h * .41);
-  g.font = `700 ${w * .14}px Amiri`; g.fillText(names, w / 2, h * .52);
-  g.strokeStyle = t.gold; g.lineWidth = Math.max(1, w * .003);
-  g.beginPath(); g.moveTo(w * .3, h * .6); g.lineTo(w * .7, h * .6); g.stroke();
-  star4(g, w / 2, h * .6, w * .022); g.fillStyle = t.gold; g.fill();
-  g.fillStyle = t.ink;
-  g.font = `500 ${w * .05}px Tajawal`; g.fillText(date, w / 2, h * .68);
-  g.font = `400 ${w * .038}px Tajawal`; g.fillText(place, w / 2, h * .74);
-  g.font = `300 ${w * .03}px Tajawal`; g.fillStyle = t.gold; g.fillText('NOURA', w / 2, h * .9);
-  return c;
-}
-function makeInside({ w, h }) {
-  const [c, g] = mk(w, h);
-  const bg = g.createLinearGradient(0, 0, w, h);
-  bg.addColorStop(0, '#fffaf4'); bg.addColorStop(1, '#efdcc9');
-  g.fillStyle = bg; g.fillRect(0, 0, w, h);
-  g.strokeStyle = '#c79b56'; g.lineWidth = w * .004;
-  g.strokeRect(w * .08, h * .06, w * .84, h * .88);
-  g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#3b1421';
-  g.font = `500 ${w * .055}px Tajawal`; g.fillText('يسعدنا دعوتكم', w / 2, h * .36);
-  g.font = `700 ${w * .11}px Amiri`; g.fillText('لحضور حفلنا', w / 2, h * .47);
-  g.strokeStyle = '#c79b56'; g.lineWidth = w * .003;
-  g.beginPath(); g.moveTo(w * .3, h * .55); g.lineTo(w * .7, h * .55); g.stroke();
-  g.font = `500 ${w * .05}px Tajawal`; g.fillText('السبت · ١٢ ديسمبر', w / 2, h * .63);
-  g.font = `400 ${w * .04}px Tajawal`; g.fillText('الساعة ٨ مساءً', w / 2, h * .7);
-  star4(g, w / 2, h * .82, w * .04); g.fillStyle = '#c79b56'; g.fill();
-  return c;
-}
 function makePhone(scr) {
   const [c, g] = mk(520, 1080);
   g.fillStyle = '#1b0a10'; rr(g, 0, 0, 520, 1080, 70); g.fill();
@@ -288,25 +238,23 @@ function makeFramed(src) {
 }
 
 let TX = null, READY = false;
-const GAL = [
-  { th:'burg',  kicker:'حفل زفاف',    names:'ريم & فهد',   date:'الجمعة · ٢٠ ديسمبر', place:'قاعة الياسمين' },
-  { th:'rose',  kicker:'حفل خطوبة',   names:'لينا & محمد', date:'الخميس · ١٨ يناير',  place:'حديقة الورد' },
-  { th:'ivory', kicker:'مولود جديد',  names:'ليان',        date:'السبت · ٥ مارس',     place:'منزل العائلة' },
-  { th:'rose',  kicker:'حفل تخرج',    names:'نورة',        date:'الأحد · ١٠ مايو',    place:'قاعة الإبداع' },
-  { th:'burg',  kicker:'عيد ميلاد',   names:'سلمى',        date:'الثلاثاء · ٧ يوليو', place:'حديقة القمر' },
-  { th:'ivory', kicker:'مناسبة خاصة', names:'عبير & سعود', date:'الجمعة · ٢ أغسطس',   place:'صالة اللؤلؤ' }
-];
+const GAL = [0, 1, 2, 0, 1, 2];   // فهارس التصاميم الثلاثة (تكرار للبطاقات الست)
+const WORK_IMGS = (window.NOURA_WORKS || []).map(src => { const im = new Image(); im.src = src; return im; });
+function coverTex(img, w, h) {                      // تملأ التصميم المساحة دون تشويه (قص من الأطراف)
+  const [c, g] = mk(w, h);
+  const sc = Math.max(w / img.width, h / img.height);
+  const dw = img.width * sc, dh = img.height * sc;
+  g.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
+  return c;
+}
 function buildTextures() {
+  const wk = i => WORK_IMGS[i % WORK_IMGS.length];
   TX = {
-    front:  makeInvite({ w:600, h:860, th:'burg', kicker:'حفل زفاف', names:'ريم & فهد', date:'الجمعة · ٢٠ ديسمبر', place:'قاعة الياسمين' }),
-    inside: makeInside({ w:600, h:860 }),
-    phones: [
-      makePhone(makeInvite({ w:484, h:1044, th:'rose',  kicker:'حفل خطوبة', names:'لينا & محمد', date:'الخميس · ١٨ يناير', place:'حديقة الورد' })),
-      makePhone(makeInvite({ w:484, h:1044, th:'burg',  kicker:'حفل زفاف',  names:'ريم & فهد',   date:'الجمعة · ٢٠ ديسمبر', place:'قاعة الياسمين' })),
-      makePhone(makeInvite({ w:484, h:1044, th:'ivory', kicker:'مولود جديد', names:'ليان',       date:'السبت · ٥ مارس',    place:'منزل العائلة' }))
-    ],
-    big: makeInvite({ w:900, h:1400, th:'burg', kicker:'حفل زفاف', names:'ريم & فهد', date:'الجمعة · ٢٠ ديسمبر', place:'قاعة الياسمين' }),
-    gal: GAL.map(o => makeFramed(makeInvite({ w:400, h:560, ...o })))
+    front:  coverTex(wk(0), 600, 860),
+    inside: coverTex(wk(2), 600, 860),
+    phones: [0, 1, 2].map(i => makePhone(coverTex(wk(i), 484, 1044))),
+    big:    coverTex(wk(1), 900, 1400),
+    gal:    GAL.map(i => makeFramed(coverTex(wk(i), 400, 560)))
   };
 }
 
@@ -759,6 +707,7 @@ async function init() {
       .map(f => document.fonts.load(f).catch(() => null))),
     new Promise(r => setTimeout(r, 3000))
   ]);
+  await Promise.all(WORK_IMGS.map(im => im.decode ? im.decode().catch(() => null) : null));
   buildTextures();
   READY = true;
   wireUI();
