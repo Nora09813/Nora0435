@@ -166,11 +166,12 @@ function sparkle(x, y, size, age, col = C.gold) {
 }
 const SPARKS = [
   [1.9, W*.2, H*.3, 46], [2.4, W*.82, H*.36, 38], [2.9, W*.5, H*.2, 30],
-  [7.9, W*.5, H*.42, 60], [8.2, W*.72, H*.6, 40],
-  [10.6, W*.5, H*.5, 70], [11.8, W*.22, H*.38, 36],
-  [15.5, W*.3, H*.45, 46], [15.9, W*.75, H*.7, 38], [17.2, W*.6, H*.25, 50],
-  [19.6, W*.2, H*.5, 40], [20.2, W*.8, H*.5, 40], [21.5, W*.5, H*.8, 48],
-  [24.6, W*.5, H*.4, 60], [26.5, W*.25, H*.3, 40], [26.9, W*.78, H*.32, 44], [27.5, W*.5, H*.2, 36]
+  [5.4, W*.2, H*.2, 40], [6.6, W*.8, H*.8, 46],
+  [10.6, W*.5, H*.45, 60], [11.4, W*.2, H*.38, 40], [11.8, W*.8, H*.7, 36],
+  [14.2, W*.25, H*.4, 46], [15.4, W*.75, H*.62, 40],
+  [18.0, W*.2, H*.5, 40], [20.4, W*.8, H*.5, 44],
+  [22.2, W*.3, H*.3, 40], [22.6, W*.7, H*.8, 46], [23.2, W*.5, H*.25, 36],
+  [25.8, W*.5, H*.45, 60], [26.5, W*.25, H*.3, 40], [27.4, W*.78, H*.32, 44], [28.2, W*.5, H*.2, 36]
 ];
 
 /* ---------- الخلفية ---------- */
@@ -238,23 +239,24 @@ function makeFramed(src) {
 }
 
 let TX = null, READY = false;
-const GAL = [0, 1, 2, 0, 1, 2];   // فهارس التصاميم الثلاثة (تكرار للبطاقات الست)
+const GAL = [0, 1, 2, 4, 5, 6];   // بطاقات المعرض: الدعوات الثلاث وثلاثة إعلانات
 const WORK_IMGS = (window.NOURA_WORKS || []).map(src => { const im = new Image(); im.src = src; return im; });
-function coverTex(img, w, h) {                      // تملأ التصميم المساحة دون تشويه (قص من الأطراف)
+function fitTex(img, w, h) {                       // التصميم كاملًا بلا قص، مع خلفية داكنة
   const [c, g] = mk(w, h);
-  const sc = Math.max(w / img.width, h / img.height);
+  g.fillStyle = '#3b1421'; g.fillRect(0, 0, w, h);
+  const sc = Math.min(w / img.width, h / img.height);
   const dw = img.width * sc, dh = img.height * sc;
   g.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
   return c;
 }
 function buildTextures() {
-  const wk = i => WORK_IMGS[i % WORK_IMGS.length];
+  const W_ = i => WORK_IMGS[i];                    // 0-2 دعوات، 3-6 إعلانات
   TX = {
-    front:  coverTex(wk(0), 600, 860),
-    inside: coverTex(wk(2), 600, 860),
-    phones: [0, 1, 2].map(i => makePhone(coverTex(wk(i), 484, 1044))),
-    big:    coverTex(wk(1), 900, 1400),
-    gal:    GAL.map(i => makeFramed(coverTex(wk(i), 400, 560)))
+    hero:   fitTex(W_(0), 820, 1140),
+    phones: [0, 1, 2].map(i => makePhone(fitTex(W_(i), 484, 1044))),
+    detail: fitTex(W_(1), 900, 1250),
+    ads:    [3, 4, 5, 6].map(i => fitTex(W_(i), 600, 1000)),
+    gal:    GAL.map(i => makeFramed(fitTex(W_(i), 400, 560)))
   };
 }
 
@@ -280,42 +282,24 @@ function sceneIntro(lt) {                        // 0 – 5.2
   sweep(lt, 2.1, 1.2, cx, cy, 760, 760 * LOGO.height / LOGO.width);
 }
 
-function sceneCard(lt) {                         // 4.7 – 10.2
-  const cx = W / 2, cy = H * .5, cw = 600, ch = 860;
-  const enter = easeOut(prog(lt, 0, 1.2));
-  const open = easeIO(prog(lt, 3.0, 1.4));
-  const s0 = lerp(.6, 1, easeOutBack(prog(lt, 0, 1.2)));
-  const ang = (1 - enter) * -1.1 + Math.sin(lt * .9) * .05 * (1 - open) + open * 1.3;
-  // ظل أرضي
+function sceneHero(lt) {                         // 4.2 – 9.0 : التصميم كاملًا وواضحًا
+  const e = easeOut(prog(lt, 0, 1.0));
+  const w = 740, h = w * TX.hero.height / TX.hero.width;
+  const cx = W / 2, cy = H * .54 + Math.sin(lt * .9) * 6;
   ctx.save();
-  ctx.translate(cx, cy + ch / 2 + 30); ctx.scale(1, .12);
-  const sg = ctx.createRadialGradient(0, 0, 0, 0, 0, 420);
-  sg.addColorStop(0, `rgba(20,4,10,${.6 * enter * (1 - open)})`);
-  sg.addColorStop(1, 'rgba(20,4,10,0)');
-  ctx.fillStyle = sg; ctx.beginPath(); ctx.arc(0, 0, 420, 0, Math.PI * 2); ctx.fill();
+  ctx.translate(cx + (1 - e) * 560, cy);
+  ctx.rotate((1 - e) * .1);
+  ctx.shadowColor = 'rgba(20,4,10,.55)'; ctx.shadowBlur = 60; ctx.shadowOffsetY = 30;
+  ctx.drawImage(TX.hero, -w / 2, -h / 2, w, h);
   ctx.restore();
-  // الصفحة الداخلية تظهر تحت الغلاف
-  if (open > 0) {
-    ctx.save();
-    ctx.globalAlpha *= smooth(prog(lt, 3.0, 1.2));
-    ctx.drawImage(TX.inside, cx - cw / 2, cy - ch / 2, cw, ch);
-    ctx.restore();
-  }
-  // الغلاف: يدور حول حافته اليسرى ليُفتح نحو المشاهد
-  ctx.save();
-  ctx.translate(cx, cy); ctx.scale(s0, s0); ctx.translate(-cx, -cy);
-  ctx.globalAlpha *= smooth(prog(lt, 0, .5));
-  slab(TX.front, cx - cw / 2, 1, cw, cy, ch, ang, 2200, 0, TX.front.width);
-  ctx.restore();
-
-  const r1 = reveal(lt, .8), r2 = reveal(lt, 1.5);
+  const r1 = reveal(lt, .5), r2 = reveal(lt, 1.1);
   T('لكل مناسبة حكاية…', W / 2, H * .15 + r1.dy, '700 76px Tajawal', C.cream, r1.a);
   T('تبدأ بدعوة.', W / 2, H * .15 + 100 + r2.dy, '700 64px Tajawal', C.gold, r2.a);
 }
 
-function scenePhones(lt) {                       // 9.8 – 14.8
+function scenePhones(lt) {                       // 8.5 – 13.2 : ثلاث دعوات تتنقل
   const a1 = easeIO(prog(lt, 1.8, .6)), a2 = easeIO(prog(lt, 2.8, .6));
-  const active = a1 + a2;                        // ينتقل من الهاتف 0 إلى 2
+  const active = a1 + a2;
   const cy = H * .55;
   const order = [0, 1, 2].sort((p, q) => Math.abs(q - active) - Math.abs(p - active));
   for (const i of order) {
@@ -325,13 +309,11 @@ function scenePhones(lt) {                       // 9.8 – 14.8
     const y = cy + (1 - en) * 260 + ad * 30;
     const s = (1 - .2 * ad) * lerp(.8, 1, en);
     const al = en * (1 - .45 * ad);
-    const ang = d * .45;
-    const dw = 480, dh = 997;
     ctx.save();
     ctx.globalAlpha *= al;
     ctx.translate(x, y); ctx.scale(s, s);
-    slab(TX.phones[i], 0, -1, dw / 2, 0, dh, ang, 2000, 0, 260);
-    slab(TX.phones[i], 0, 1, dw / 2, 0, dh, ang, 2000, 260, 260);
+    slab(TX.phones[i], 0, -1, 240, 0, 997, d * .45, 2000, 0, 260);
+    slab(TX.phones[i], 0, 1, 240, 0, 997, d * .45, 2000, 260, 260);
     ctx.restore();
   }
   const r1 = reveal(lt, .5), r2 = reveal(lt, 1.0);
@@ -339,20 +321,21 @@ function scenePhones(lt) {                       // 9.8 – 14.8
   T('بتصاميم تعكس ذوقك.', W / 2, H * .15 + 100 + r2.dy, '700 64px Tajawal', C.gold, r2.a);
 }
 
-function sceneDetails(lt) {                      // 14.3 – 19.2
-  const z = lerp(1.25, 1, easeOut(prog(lt, .3, 1.6)));
-  const panY = lerp(180, -40, easeIO(prog(lt, 1.8, 2.8)));
-  const bw = 700, bh = bw * 1400 / 900;
+function sceneDetails(lt) {                      // 12.9 – 16.9 : تفاصيل التصميم
+  const z = lerp(1.06, 1, easeOut(prog(lt, 0, 2.5)));
+  const w = 760, h = w * TX.detail.height / TX.detail.width;
   ctx.save();
-  ctx.translate(W / 2, H * .56 + panY); ctx.scale(z, z);
-  ctx.drawImage(TX.big, -bw / 2, -bh / 2, bw, bh);
-  const sh = prog(lt, 1.2, 2.2);                 // لمعة ذهبية تمر على البطاقة
+  ctx.translate(W / 2, H * .55); ctx.scale(z, z);
+  ctx.shadowColor = 'rgba(20,4,10,.55)'; ctx.shadowBlur = 50; ctx.shadowOffsetY = 25;
+  ctx.drawImage(TX.detail, -w / 2, -h / 2, w, h);
+  ctx.shadowColor = 'transparent';
+  const sh = prog(lt, .8, 1.8);                  // لمعة ذهبية خفيفة
   if (sh > 0 && sh < 1) {
-    const x = lerp(-bw, bw, sh);
+    const x = lerp(-w, w, sh);
     const g = ctx.createLinearGradient(x - 120, 0, x + 120, 0);
-    g.addColorStop(0, 'rgba(255,230,180,0)'); g.addColorStop(.5, 'rgba(255,230,180,.35)'); g.addColorStop(1, 'rgba(255,230,180,0)');
+    g.addColorStop(0, 'rgba(255,230,180,0)'); g.addColorStop(.5, 'rgba(255,230,180,.3)'); g.addColorStop(1, 'rgba(255,230,180,0)');
     ctx.globalCompositeOperation = 'screen';
-    ctx.fillStyle = g; ctx.fillRect(-bw / 2, -bh / 2, bw, bh);
+    ctx.fillStyle = g; ctx.fillRect(-w / 2, -h / 2, w, h);
   }
   ctx.restore();
   const r1 = reveal(lt, .3), r2 = reveal(lt, .9);
@@ -360,18 +343,38 @@ function sceneDetails(lt) {                      // 14.3 – 19.2
   T('لتكون دعوتك استثنائية.', W / 2, H * .15 + 100 + r2.dy, '700 64px Tajawal', C.gold, r2.a);
 }
 
-function sceneGallery(lt) {                      // 18.7 – 24.2
+function sceneAds(lt) {                          // 16.5 – 22.0 : إعلانات تجارية تتتابع
+  const per = 1.15, pos = lt / per;
+  const idx = Math.floor(pos), f = pos - idx;
+  const fp = idx + easeIO(clamp((f - .55) / .45));
+  const cy = H * .56;
+  TX.ads.forEach((tex, k) => {
+    const d = k - fp, ad = Math.abs(d);
+    if (ad > 2.2) return;
+    const s = 1 - .18 * Math.min(1, ad), al = 1 - .55 * Math.min(1, ad);
+    const w = 600 * s, h = w * tex.height / tex.width;
+    ctx.save();
+    ctx.globalAlpha *= al;
+    ctx.shadowColor = 'rgba(20,4,10,.55)'; ctx.shadowBlur = 50; ctx.shadowOffsetY = 25;
+    ctx.drawImage(tex, W / 2 + d * 560 - w / 2, cy - h / 2, w, h);
+    ctx.restore();
+  });
+  const r1 = reveal(lt, .3), r2 = reveal(lt, .9);
+  T('وإعلانات تجارية', W / 2, H * .15 + r1.dy, '700 74px Tajawal', C.cream, r1.a);
+  T('تلفت الأنظار.', W / 2, H * .15 + 100 + r2.dy, '700 64px Tajawal', C.gold, r2.a);
+}
+
+function sceneGallery(lt) {                      // 21.6 – 25.8 : كل التصاميم معًا
   const dw = 290, dh = 387;
   const cols = [-320, 0, 320], rows = [H * .4, H * .4 + 440];
   const items = GAL.map((_, i) => {
     const row = Math.floor(i / 3), col = i % 3, delay = .15 * i;
-    const p = prog(lt, delay, 1.1);
-    const e = easeOut(p);
+    const e = easeOut(prog(lt, delay, 1.1));
     return {
       i, x: W / 2 + cols[col], y: rows[row] + (1 - e) * 260,
       s: lerp(.35, 1, e), al: smooth(prog(lt, delay, .6)), ang: Math.sin(lt * .9 + i) * .12
     };
-  }).sort((a, b) => a.s - b.s);                  // الأبعد أولاً
+  }).sort((a, b) => a.s - b.s);
   for (const it of items) {
     if (it.al <= 0) continue;
     const tex = TX.gal[it.i], fw = tex.width;
@@ -391,14 +394,14 @@ function sceneGallery(lt) {                      // 18.7 – 24.2
   T('يشبه مناسبتك.', W / 2, H * .15 + 100 + r2.dy, '700 64px Tajawal', C.gold, r2.a);
 }
 
-function sceneEnd(lt) {                          // 23.6 – 30
+function sceneEnd(lt) {                          // 25.4 – 30
   const cx = W / 2, cy = H * .42;
   const a = prog(lt, .2, 1.6);
   const rg = ctx.createRadialGradient(cx, cy, 20, cx, cy, W * .6);
   rg.addColorStop(0, `rgba(233,184,174,${.22 * a})`);
   rg.addColorStop(1, 'rgba(233,184,174,0)');
   ctx.fillStyle = rg; ctx.fillRect(0, 0, W, H);
-  ctx.save();                                    // أشعة خفيفة تدور ببطء
+  ctx.save();
   ctx.translate(cx, cy); ctx.rotate(lt * .05);
   for (let k = 0; k < 12; k++) {
     ctx.rotate(Math.PI / 6);
@@ -420,13 +423,15 @@ function sceneEnd(lt) {                          // 23.6 – 30
 }
 
 const SCENES = [
-  { a: 0,    b: 5.2,  fn: sceneIntro },
-  { a: 4.7,  b: 10.2, fn: sceneCard },
-  { a: 9.8,  b: 14.8, fn: scenePhones },
-  { a: 14.3, b: 19.2, fn: sceneDetails },
-  { a: 18.7, b: 24.2, fn: sceneGallery },
-  { a: 23.6, b: DUR,  fn: sceneEnd }
+  { a: 0,    b: 4.7,  fn: sceneIntro },
+  { a: 4.2,  b: 9.0,  fn: sceneHero },
+  { a: 8.5,  b: 13.2, fn: scenePhones },
+  { a: 12.9, b: 16.9, fn: sceneDetails },
+  { a: 16.5, b: 22.0, fn: sceneAds },
+  { a: 21.6, b: 25.8, fn: sceneGallery },
+  { a: 25.4, b: DUR,  fn: sceneEnd }
 ];
+
 function sceneAlpha(t, s) {
   const fi = s.a === 0 ? 1 : smooth(prog(t, s.a, .6));
   const fo = s.b >= DUR ? 1 : smooth(clamp((s.b - t) / .6));
@@ -454,10 +459,14 @@ function render(t) {
    (لا توجد ملفات صوتية خارجية، وتعمل نفس الجدولة للتشغيل والتصدير)
    ========================================================== */
 const CUES = [
-  { t: 1.6, k: 'chime' }, { t: 4.6, k: 'whoosh' }, { t: 7.7, k: 'paper' }, { t: 9.6, k: 'whoosh' },
-  { t: 10.6, k: 'sparkle' }, { t: 11.6, k: 'whoosh' }, { t: 12.6, k: 'whoosh' }, { t: 14.2, k: 'whoosh' },
-  { t: 15.4, k: 'sparkle' }, { t: 17.0, k: 'sparkle' }, { t: 18.6, k: 'whoosh' }, { t: 19.8, k: 'sparkle' },
-  { t: 21.5, k: 'sparkle' }, { t: 23.5, k: 'whoosh' }, { t: 24.6, k: 'chime' }, { t: 26.5, k: 'sparkle' }
+  { t: .1, k: 'bass' }, { t: 1.6, k: 'chime' },
+  { t: 4.2, k: 'whoosh' }, { t: 4.9, k: 'ding' },
+  { t: 8.5, k: 'whoosh' }, { t: 8.9, k: 'ding' }, { t: 10.3, k: 'whoosh' }, { t: 11.3, k: 'whoosh' },
+  { t: 12.9, k: 'whoosh' }, { t: 13.2, k: 'ding' }, { t: 15.4, k: 'sparkle' },
+  { t: 16.5, k: 'whoosh' }, { t: 16.5, k: 'pop' }, { t: 17.1, k: 'whoosh' }, { t: 17.1, k: 'pop' },
+  { t: 18.3, k: 'whoosh' }, { t: 18.3, k: 'pop' }, { t: 19.5, k: 'whoosh' }, { t: 19.5, k: 'pop' },
+  { t: 21.6, k: 'whoosh' }, { t: 22.2, k: 'sparkle' }, { t: 22.9, k: 'ding' },
+  { t: 25.4, k: 'whoosh' }, { t: 25.7, k: 'chime' }, { t: 26.5, k: 'sparkle' }, { t: 27.4, k: 'sparkle' }
 ];
 function noiseBuf(actx) {
   const len = Math.floor(actx.sampleRate * 1.5);
@@ -487,15 +496,57 @@ function buildAudio(actx, out, fromT, t0) {
     const v = clamp(tt / 2.5) * (1 - smooth(prog(tt, 27.8, 2.2))) * .9;
     bus.gain.linearRampToValueAtTime(v, t0 + (tt - fromT));
   }
+  for (let k = 0; ; k++) {                          // إيقاع خفيف 120 BPM من 4.2 حتى 25.8
+    const bt = 4.2 + k * .5;
+    if (bt > 25.8) break;
+    if (bt < fromT) continue;
+    kick(actx, out, t0 + (bt - fromT), nodes);
+    hat(actx, out, nb, t0 + (bt - fromT) + .25, nodes);
+  }
+  const disp = { whoosh, pop, sparkle: sparkSfx, chime, ding, bass, };
   for (const c of CUES) {
-    if (c.t < fromT) continue;
-    const w = t0 + (c.t - fromT);
-    if (c.k === 'whoosh') whoosh(actx, out, nb, w, nodes);
-    if (c.k === 'paper') paper(actx, out, nb, w, nodes);
-    if (c.k === 'sparkle') sparkSfx(actx, out, w, nodes);
-    if (c.k === 'chime') chime(actx, out, w, nodes);
+    if (c.t < fromT || !disp[c.k]) continue;
+    if (c.k === 'whoosh') whoosh(actx, out, nb, t0 + (c.t - fromT), nodes);
+    else if (c.k === 'pop') pop(actx, out, t0 + (c.t - fromT), nodes);
+    else if (c.k === 'sparkle') sparkSfx(actx, out, t0 + (c.t - fromT), nodes);
+    else if (c.k === 'chime') chime(actx, out, t0 + (c.t - fromT), nodes);
+    else if (c.k === 'ding') ding(actx, out, t0 + (c.t - fromT), nodes);
+    else if (c.k === 'bass') bass(actx, out, t0 + (c.t - fromT), nodes);
   }
   return nodes;
+}
+function kick(actx, out, w, nodes) {
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.frequency.setValueAtTime(140, w); o.frequency.exponentialRampToValueAtTime(40, w + .18);
+  g.gain.setValueAtTime(.3, w); g.gain.exponentialRampToValueAtTime(.001, w + .25);
+  o.connect(g); g.connect(out); o.start(w); o.stop(w + .27); nodes.push(o, g);
+}
+function hat(actx, out, nb, w, nodes) {
+  const s = actx.createBufferSource(); s.buffer = nb;
+  const hp = actx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 7000;
+  const g = actx.createGain();
+  g.gain.setValueAtTime(.06, w); g.gain.exponentialRampToValueAtTime(.001, w + .06);
+  s.connect(hp); hp.connect(g); g.connect(out); s.start(w, .5); s.stop(w + .08); nodes.push(s, hp, g);
+}
+function pop(actx, out, w, nodes) {
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.frequency.setValueAtTime(900, w); o.frequency.exponentialRampToValueAtTime(300, w + .12);
+  g.gain.setValueAtTime(.25, w); g.gain.exponentialRampToValueAtTime(.001, w + .15);
+  o.connect(g); g.connect(out); o.start(w); o.stop(w + .17); nodes.push(o, g);
+}
+function ding(actx, out, w, nodes) {               // جرس خشبي لامع
+  [[1046.5, .16, 1.6], [2093, .06, .9], [3136, .03, .5]].forEach(([f, a, d]) => {
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = 'sine'; o.frequency.value = f;
+    g.gain.setValueAtTime(a, w); g.gain.exponentialRampToValueAtTime(.001, w + d);
+    o.connect(g); g.connect(out); o.start(w); o.stop(w + d + .05); nodes.push(o, g);
+  });
+}
+function bass(actx, out, w, nodes) {              // ضربة خفيفة في البداية
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.frequency.setValueAtTime(90, w); o.frequency.exponentialRampToValueAtTime(35, w + .8);
+  g.gain.setValueAtTime(.45, w); g.gain.exponentialRampToValueAtTime(.001, w + 1.2);
+  o.connect(g); g.connect(out); o.start(w); o.stop(w + 1.25); nodes.push(o, g);
 }
 function whoosh(actx, out, nb, w, nodes) {
   const s = actx.createBufferSource(); s.buffer = nb; s.loop = true;
