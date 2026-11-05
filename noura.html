@@ -26,6 +26,7 @@ canvas{display:block;width:100%;height:100%}
 <body>
 <div id="stage"><canvas id="scene" width="1080" height="1920"></canvas></div>
 <button id="go" type="button">▶ تشغيل</button>
+<button id="exp" type="button">⏺ تصدير MP4</button>
 <p id="note">35 ثانية · ثلاثة مشاهد · الصوت يُشغَّل من narration.mp3 إن وُجد</p>
 
 <script>
@@ -254,6 +255,11 @@ narr.preload = "auto";
 narr.onerror = () => {};
 
 let lt = 0, playing = false, p0 = 0;
+let recorder = null, actx = null, mdest = null;
+const expBtn = document.getElementById("exp");
+const MIMES = ["video/mp4", "video/webm;codecs=vp9", "video/webm"];
+const MIME = window.MediaRecorder ? MIMES.find(m => MediaRecorder.isTypeSupported(m)) : null;
+
 function loop(now) {
   if (playing) {
     lt = (now - p0) / 1000;
@@ -261,6 +267,7 @@ function loop(now) {
       lt = DUR; playing = false;
       btn.textContent = "↺ إعادة التشغيل";
       btn.disabled = false;
+      if (recorder && recorder.state !== "inactive") recorder.stop();
     }
   }
   draw(clamp(lt, 0, DUR));
@@ -273,6 +280,50 @@ btn.onclick = () => {
   btn.textContent = "جارٍ التشغيل…";
   btn.disabled = true;
 };
+
+// تصدير MP4 (أو WebM إن لم يكن MP4 مدعومًا) مع الصوت إن وُجد
+function startExport() {
+  if (!MIME || recorder) return;
+  const stream = cv.captureStream(30);
+  try {
+    if (!actx) {
+      actx = new (window.AudioContext || window.webkitAudioContext)();
+      const src = actx.createMediaElementSource(narr);
+      mdest = actx.createMediaStreamDestination();
+      src.connect(mdest);
+      src.connect(actx.destination);
+    }
+    actx.resume();
+    const at = mdest.stream.getAudioTracks()[0];
+    if (at) stream.addTrack(at);
+  } catch (e) { /* بدون صوت */ }
+
+  const type = MIME.split(";")[0];
+  const ext = type === "video/mp4" ? "mp4" : "webm";
+  const chunks = [];
+  recorder = new MediaRecorder(stream, { mimeType: MIME, videoBitsPerSecond: 8000000, audioBitsPerSecond: 192000 });
+  recorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  recorder.onstop = () => {
+    const blob = new Blob(chunks, { type });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "noura-35s." + ext;
+    a.textContent = "⬇ تنزيل الفيديو (" + ext.toUpperCase() + "، " + (blob.size / 1048576).toFixed(1) + " MB)";
+    note.textContent = "";
+    note.appendChild(a);
+    stream.getTracks().forEach(tr => tr.stop());
+    recorder = null;
+    expBtn.disabled = false;
+    btn.disabled = false;
+  };
+  expBtn.disabled = true; btn.disabled = true;
+  note.textContent = "جارٍ تسجيل الفيديو…";
+  p0 = performance.now(); playing = true;
+  try { narr.currentTime = 0; narr.play().catch(() => {}); } catch (e) {}
+  recorder.start(250);
+  setTimeout(() => { if (recorder && recorder.state !== "inactive") recorder.stop(); }, (DUR + 2) * 1000);
+}
+expBtn.onclick = startExport;
 
 draw(0);
 requestAnimationFrame(loop);
