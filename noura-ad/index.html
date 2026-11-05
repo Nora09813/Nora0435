@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>NOURA – إعلان دعوات إلكترونية</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Tajawal:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#1c0a12;--cream:#f4e6d8;--gold:#d9b77e}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;background:var(--bg);color:var(--cream);font-family:Tajawal,system-ui,-apple-system,sans-serif}
+body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:16px;min-height:100vh;min-height:100dvh}
+#stage{width:min(calc(100vw - 32px),calc((100dvh - 230px) * 9 / 16),500px);aspect-ratio:9/16;border-radius:16px;overflow:hidden;box-shadow:0 24px 70px rgba(0,0,0,.55);background:#4d1a29}
+#c{display:block;width:100%;height:100%}
+.bar{width:min(calc(100vw - 32px),500px);display:flex;flex-direction:column;gap:10px}
+.prog{position:relative;height:6px;border-radius:6px;background:rgba(244,230,216,.18)}
+#fill{position:absolute;top:0;bottom:0;left:0;width:0;border-radius:6px;background:linear-gradient(90deg,#e9b8ae,#d9b77e)}
+#seek{position:absolute;left:0;top:-10px;width:100%;height:26px;opacity:0;margin:0;cursor:pointer}
+.row{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+button{font:inherit;font-size:15px;color:var(--cream);background:rgba(244,230,216,.1);border:1px solid rgba(217,183,126,.45);border-radius:999px;padding:10px 16px;min-height:44px;cursor:pointer}
+button:hover{background:rgba(244,230,216,.2)}
+button.primary{background:linear-gradient(135deg,#e9b8ae,#d9b77e);color:#3b1421;border:none;font-weight:700}
+button:disabled{opacity:.5;cursor:default}
+#time{font-variant-numeric:tabular-nums;font-size:14px;opacity:.85;text-align:center}
+#msg{font-size:14px;line-height:1.6;text-align:center;min-height:2.8em;opacity:.92}
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="c" width="1080" height="1920" role="img" aria-label="إعلان NOURA للدعوات الإلكترونية"></canvas></div>
+
+<div class="bar">
+  <div class="prog">
+    <div id="fill"></div>
+    <input id="seek" type="range" min="0" max="30" step="0.01" value="0" aria-label="تقدم الفيديو">
+  </div>
+  <div id="time">00:00 / 00:30</div>
+  <div class="row">
+    <button id="btnPlay" class="primary" aria-label="تشغيل أو إيقاف مؤقت">▶ تشغيل</button>
+    <button id="btnRestart" aria-label="إعادة التشغيل من البداية">↺ من البداية</button>
+    <button id="btnSound" aria-label="تشغيل أو إيقاف الصوت">🔊 الصوت</button>
+    <button id="btnExport" aria-label="تصدير الفيديو كاملًا بصيغة MP4">⬇ تصدير MP4</button>
+    <button id="btnSave" hidden aria-label="مشاركة أو حفظ آخر فيديو مُصدَّر">💾 حفظ الفيديو</button>
+  </div>
+  <div id="msg" aria-live="polite"></div>
+</div>
+
+<script src="assets/logo.js"></script>
+<script>
+/* ==========================================================
+   NOURA – إعلان دعوات إلكترونية (30 ثانية · 1080×1920 · 30fps)
+   كل المشاهد تُحسب من الزمن t، لذلك التشغيل والتصدير متطابقان.
+   ========================================================== */
+
+const W = 1080, H = 1920, FPS = 30, DUR = 30;
+const C = { cream:'#f4e6d8', ivory:'#fbf3ea', rose:'#e9b8ae', gold:'#d9b77e', ink:'#3b1421' };
+const THEMES = {
+  rose:  { c1:'#fbefe6', c2:'#e9c7bb', ink:'#5b1f2e', gold:'#b58a4c' },
+  burg:  { c1:'#8a4454', c2:'#4f1b2a', ink:'#f6e7d8', gold:'#e2c388' },
+  ivory: { c1:'#fffaf4', c2:'#efdcc9', ink:'#3b1421', gold:'#c79b56' }
+};
+
+const $ = id => document.getElementById(id);
+const cv = $('c'), ctx = cv.getContext('2d');
+ctx.imageSmoothingEnabled = true;
+ctx.imageSmoothingQuality = 'high';
+
+/* ---------- أدوات مساعدة ---------- */
+const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+const prog = (t, a, d) => clamp((t - a) / d);
+const smooth = x => x * x * (3 - 2 * x);
+const easeIO = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+const easeOut = x => 1 - Math.pow(1 - x, 3);
+const easeOutBack = x => { const c = 1.4; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); };
+const lerp = (a, b, t) => a + (b - a) * t;
+const reveal = (lt, start, dur = .9) => { const p = easeOut(prog(lt, start, dur)); return { a: p, dy: (1 - p) * 36 }; };
+function rng(seed) {
+  return function () {
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+const rand = rng(20260);
+const PARTS = Array.from({ length: 110 }, () => ({ x: rand(), y: rand(), r: .6 + rand() * 2.6, sp: .3 + rand() * .9, ph: rand() * Math.PI * 2, z: rand() }));
+function mk(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return [c, c.getContext('2d')]; }
+function rr(g, x, y, w, h, r) {
+  g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+}
+function star4(g, x, y, r) {            // نجمة رباعية ذات أضلاع مقعّرة (مستوحاة من شعار NOURA)
+  g.beginPath(); g.moveTo(x, y - r);
+  g.quadraticCurveTo(x + r * .1, y - r * .1, x + r, y);
+  g.quadraticCurveTo(x + r * .1, y + r * .1, x, y + r);
+  g.quadraticCurveTo(x - r * .1, y + r * .1, x - r, y);
+  g.quadraticCurveTo(x - r * .1, y - r * .1, x, y - r);
+  g.closePath();
+}
+
+/* ---------- الشعار (كما هو، بدون إعادة رسم) ---------- */
+let LOGO = null;                       // نسخة مع حواف ناعمة للدمج مع الخلفية
+const logoImg = new Image();
+logoImg.onload = () => {
+  const [c, g] = mk(logoImg.width, logoImg.height);
+  g.drawImage(logoImg, 0, 0);
+  const [m, mg] = mk(c.width, c.height);
+  const pad = c.width * .16, off = c.width * 4;
+  mg.shadowColor = '#fff'; mg.shadowBlur = c.width * .1; mg.shadowOffsetX = off;
+  mg.fillStyle = '#fff'; mg.fillRect(pad - off, pad, c.width - 2 * pad, c.height - 2 * pad);
+  g.globalCompositeOperation = 'destination-in';
+  g.drawImage(m, 0, 0);
+  LOGO = c;
+};
+logoImg.src = window.NOURA_LOGO_SRC || 'assets/noura-logo.jpg';
+
+/* ---------- تقنية الدوران ثلاثي الأبعاد بالشرائح ----------
+   تُرسم الصورة كشرائح رقيقة، كل شريحة تُعرض بمنظور حسب زاوية الدوران. */
+function slab(src, hinge, dir, panelW, cy, h, angle, persp, sx0 = 0, sw0 = src.width) {
+  const n = Math.max(6, Math.round(panelW / 1.5));
+  const ca = Math.cos(angle), sa = Math.sin(angle);
+  const sw = sw0 / n, pw = panelW / n;
+  for (let i = 0; i < n; i++) {
+    const idx = dir > 0 ? i : n - 1 - i;
+    const x = ((i + .5) / n) * panelW * dir;
+    const z = x * sa;
+    const s = persp / (persp - z);
+    const dw = Math.abs(pw * ca * s) + 1.4;
+    const dh = h * s;
+    const cx = hinge + x * ca * s;
+    const dx = cx - dw / 2, dy = cy - dh / 2;
+    ctx.drawImage(src, sx0 + idx * sw, 0, sw, src.height, dx, dy, dw, dh);
+    const k = clamp(-z / (panelW * 1.2), 0, .55);       // الأجزاء البعيدة أغمق
+    if (k > .005) { const w0 = Math.abs(pw * ca * s); ctx.fillStyle = `rgba(30,6,14,${k})`; ctx.fillRect(cx - w0 / 2, dy, w0, dh); }
+  }
+}
+function drawLogo(cx, cy, w, angle = 0, persp = 2600) {
+  if (!LOGO) return;
+  const h = w * LOGO.height / LOGO.width, hw = LOGO.width / 2;
+  if (Math.abs(angle) < .002) { ctx.drawImage(LOGO, cx - w / 2, cy - h / 2, w, h); return; }   // وضع الثبات: صورة واحدة بلا شرائح
+  slab(LOGO, cx, -1, w / 2, cy, h, angle, persp, 0, hw);
+  slab(LOGO, cx, 1, w / 2, cy, h, angle, persp, hw, hw);
+}
+function sweep(lt, start, dur, cx, cy, w, h) {           // شعاع ضوء يمر فوق العنصر
+  const p = prog(lt, start, dur);
+  if (p <= 0 || p >= 1) return;
+  ctx.save();
+  ctx.beginPath(); ctx.rect(cx - w / 2, cy - h / 2, w, h); ctx.clip();
+  const x = lerp(cx - w * .9, cx + w * .9, p);
+  const g = ctx.createLinearGradient(x - w * .22, 0, x + w * .22, 0);
+  g.addColorStop(0, 'rgba(255,240,225,0)');
+  g.addColorStop(.5, 'rgba(255,240,225,.45)');
+  g.addColorStop(1, 'rgba(255,240,225,0)');
+  ctx.globalCompositeOperation = 'screen';
+  ctx.fillStyle = g; ctx.fillRect(cx - w, cy - h, w * 2, h * 2);
+  ctx.restore();
+}
+
+/* ---------- بريق ---------- */
+function sparkle(x, y, size, age, col = C.gold) {
+  if (age < 0 || age > 1.2) return;
+  const a = Math.sin(clamp(age / 1.0) * Math.PI);
+  const s = size * (.4 + .6 * easeOut(clamp(age / .5))) * (1 - .3 * clamp(age / 1.2));
+  ctx.save();
+  ctx.globalAlpha *= clamp(a);
+  ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = s * .8;
+  star4(ctx, x, y, s); ctx.fill();
+  ctx.restore();
+}
+const SPARKS = [
+  [1.9, W*.2, H*.3, 46], [2.4, W*.82, H*.36, 38], [2.9, W*.5, H*.2, 30],
+  [7.9, W*.5, H*.42, 60], [8.2, W*.72, H*.6, 40],
+  [10.6, W*.5, H*.5, 70], [11.8, W*.22, H*.38, 36],
+  [15.5, W*.3, H*.45, 46], [15.9, W*.75, H*.7, 38], [17.2, W*.6, H*.25, 50],
+  [19.6, W*.2, H*.5, 40], [20.2, W*.8, H*.5, 40], [21.5, W*.5, H*.8, 48],
+  [24.6, W*.5, H*.4, 60], [26.5, W*.25, H*.3, 40], [26.9, W*.78, H*.32, 44], [27.5, W*.5, H*.2, 36]
+];
+
+/* ---------- الخلفية ---------- */
+function drawBG(t) {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#4d1a29'); g.addColorStop(.5, '#84404f'); g.addColorStop(1, '#3a1220');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  for (let i = 0; i < 3; i++) {                        // أضواء متحركة ناعمة
+    const x = W * (.5 + .38 * Math.sin(t * .22 + i * 2.1));
+    const y = H * (.3 + .22 * Math.cos(t * .17 + i * 1.7));
+    const r = W * (.45 + .08 * i);
+    const rg = ctx.createRadialGradient(x, y, 0, x, y, r);
+    rg.addColorStop(0, `rgba(255,220,205,${.13 - i * .02})`);
+    rg.addColorStop(1, 'rgba(255,220,205,0)');
+    ctx.fillStyle = rg; ctx.fillRect(0, 0, W, H);
+  }
+  ctx.save();                                          // جزيئات ناعمة
+  for (const p of PARTS) {
+    const x = ((p.x + Math.sin(t * .35 + p.ph) * .025) % 1 + 1) % 1 * W;
+    const y = ((p.y - t * p.sp * .02) % 1 + 1) % 1 * H;
+    const tw = .5 + .5 * Math.sin(t * 1.4 * p.sp + p.ph);
+    ctx.globalAlpha = (.15 + .5 * tw) * (.4 + .6 * p.z);
+    ctx.fillStyle = p.z > .6 ? C.gold : C.rose;
+    ctx.beginPath(); ctx.arc(x, y, p.r * (.6 + p.z), 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+  const v = ctx.createRadialGradient(W / 2, H / 2, H * .3, W / 2, H / 2, H * .85);
+  v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(20,4,10,.55)');
+  ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+}
+
+/* ---------- نصوص ---------- */
+function T(str, x, y, font, color, a, dy = 0, sc = 1) {
+  if (a <= .002) return;
+  ctx.save();
+  ctx.globalAlpha *= clamp(a);
+  ctx.font = font; ctx.fillStyle = color;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.shadowColor = 'rgba(40,8,18,.45)'; ctx.shadowBlur = 22; ctx.shadowOffsetY = 4;
+  ctx.translate(x, y + dy); ctx.scale(sc, sc);
+  ctx.fillText(str, 0, 0);
+  ctx.restore();
+}
+
+/* ---------- تصميم الدعوات (تُبنى مرة واحدة كصور) ---------- */
+function makeInvite({ w, h, th, kicker, names, date, place }) {
+  const [c, g] = mk(w, h), t = THEMES[th];
+  const bg = g.createLinearGradient(0, 0, w, h);
+  bg.addColorStop(0, t.c1); bg.addColorStop(1, t.c2);
+  g.fillStyle = bg; g.fillRect(0, 0, w, h);
+  const sh = g.createRadialGradient(w * .5, h * .3, w * .05, w * .5, h * .3, w * .8);
+  sh.addColorStop(0, 'rgba(255,255,255,.18)'); sh.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = sh; g.fillRect(0, 0, w, h);
+  g.strokeStyle = t.gold; g.lineWidth = Math.max(2, w * .006);
+  g.strokeRect(w * .06, h * .035, w * .88, h * .93);
+  g.lineWidth = Math.max(1, w * .0016);
+  g.strokeRect(w * .078, h * .052, w * .844, h * .896);
+  g.lineWidth = Math.max(1.5, w * .004);
+  g.beginPath(); g.arc(w / 2, h * .25, w * .24, Math.PI, 0); g.stroke();
+  star4(g, w / 2, h * .25, w * .075); g.fillStyle = t.gold; g.fill();
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillStyle = t.ink;
+  g.font = `400 ${w * .05}px Tajawal`; g.fillText(kicker, w / 2, h * .41);
+  g.font = `700 ${w * .14}px Amiri`; g.fillText(names, w / 2, h * .52);
+  g.strokeStyle = t.gold; g.lineWidth = Math.max(1, w * .003);
+  g.beginPath(); g.moveTo(w * .3, h * .6); g.lineTo(w * .7, h * .6); g.stroke();
+  star4(g, w / 2, h * .6, w * .022); g.fillStyle = t.gold; g.fill();
+  g.fillStyle = t.ink;
+  g.font = `500 ${w * .05}px Tajawal`; g.fillText(date, w / 2, h * .68);
+  g.font = `400 ${w * .038}px Tajawal`; g.fillText(place, w / 2, h * .74);
+  g.font = `300 ${w * .03}px Tajawal`; g.fillStyle = t.gold; g.fillText('NOURA', w / 2, h * .9);
+  return c;
+}
+function makeInside({ w, h }) {
+  const [c, g] = mk(w, h);
+  const bg = g.createLinearGradient(0, 0, w, h);
+  bg.addColorStop(0, '#fffaf4'); bg.addColorStop(1, '#efdcc9');
+  g.fillStyle = bg; g.fillRect(0, 0, w, h);
+  g.strokeStyle = '#c79b56'; g.lineWidth = w * .004;
+  g.strokeRect(w * .08, h * .06, w * .84, h * .88);
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#3b1421';
+  g.font = `500 ${w * .055}px Tajawal`; g.fillText('يسعدنا دعوتكم', w / 2, h * .36);
+  g.font = `700 ${w * .11}px Amiri`; g.fillText('لحضور حفلنا', w / 2, h * .47);
+  g.strokeStyle = '#c79b56'; g.lineWidth = w * .003;
+  g.beginPath(); g.moveTo(w * .3, h * .55); g.lineTo(w * .7, h * .55); g.stroke();
+  g.font = `500 ${w * .05}px Tajawal`; g.fillText('السبت · ١٢ ديسمبر', w / 2, h * .63);
+  g.font = `400 ${w * .04}px Tajawal`; g.fillText('الساعة ٨ مساءً', w / 2, h * .7);
+  star4(g, w / 2, h * .82, w * .04); g.fillStyle = '#c79b56'; g.fill();
+  return c;
+}
+function makePhone(scr) {
+  const [c, g] = mk(520, 1080);
+  g.fillStyle = '#1b0a10'; rr(g, 0, 0, 520, 1080, 70); g.fill();
+  g.save(); rr(g, 18, 18, 484, 1044, 56); g.clip();
+  g.drawImage(scr, 18, 18, 484, 1044); g.restore();
+  g.fillStyle = '#0c0508'; rr(g, 190, 30, 140, 34, 17); g.fill();
+  g.strokeStyle = 'rgba(217,183,126,.5)'; g.lineWidth = 3; rr(g, 4, 4, 512, 1072, 66); g.stroke();
+  return c;
+}
+function makeFramed(src) {
+  const pad = Math.round(src.width * .08);
+  const [c, g] = mk(src.width + pad * 2, src.height + pad * 2);
+  g.fillStyle = '#3a1420'; g.fillRect(0, 0, c.width, c.height);
+  const m = g.createLinearGradient(0, 0, c.width, c.height);
+  m.addColorStop(0, '#fbf3ea'); m.addColorStop(1, '#eadacb');
+  g.fillStyle = m; g.fillRect(pad * .35, pad * .35, c.width - pad * .7, c.height - pad * .7);
+  g.drawImage(src, pad, pad);
+  g.strokeStyle = '#d9b77e'; g.lineWidth = 3;
+  g.strokeRect(pad - 2, pad - 2, src.width + 4, src.height + 4);
+  return c;
+}
+
+let TX = null, READY = false;
+const GAL = [
+  { th:'burg',  kicker:'حفل زفاف',    names:'ريم & فهد',   date:'الجمعة · ٢٠ ديسمبر', place:'قاعة الياسمين' },
+  { th:'rose',  kicker:'حفل خطوبة',   names:'لينا & محمد', date:'الخميس · ١٨ يناير',  place:'حديقة الورد' },
+  { th:'ivory', kicker:'مولود جديد',  names:'ليان',        date:'السبت · ٥ مارس',     place:'منزل العائلة' },
+  { th:'rose',  kicker:'حفل تخرج',    names:'نورة',        date:'الأحد · ١٠ مايو',    place:'قاعة الإبداع' },
+  { th:'burg',  kicker:'عيد ميلاد',   names:'سلمى',        date:'الثلاثاء · ٧ يوليو', place:'حديقة القمر' },
+  { th:'ivory', kicker:'مناسبة خاصة', names:'عبير & سعود', date:'الجمعة · ٢ أغسطس',   place:'صالة اللؤلؤ' }
+];
+function buildTextures() {
+  TX = {
+    front:  makeInvite({ w:600, h:860, th:'burg', kicker:'حفل زفاف', names:'ريم & فهد', date:'الجمعة · ٢٠ ديسمبر', place:'قاعة الياسمين' }),
+    inside: makeInside({ w:600, h:860 }),
+    phones: [
+      makePhone(makeInvite({ w:484, h:1044, th:'rose',  kicker:'حفل خطوبة', names:'لينا & محمد', date:'الخميس · ١٨ يناير', place:'حديقة الورد' })),
+      makePhone(makeInvite({ w:484, h:1044, th:'burg',  kicker:'حفل زفاف',  names:'ريم & فهد',   date:'الجمعة · ٢٠ ديسمبر', place:'قاعة الياسمين' })),
+      makePhone(makeInvite({ w:484, h:1044, th:'ivory', kicker:'مولود جديد', names:'ليان',       date:'السبت · ٥ مارس',    place:'منزل العائلة' }))
+    ],
+    big: makeInvite({ w:900, h:1400, th:'burg', kicker:'حفل زفاف', names:'ريم & فهد', date:'الجمعة · ٢٠ ديسمبر', place:'قاعة الياسمين' }),
+    gal: GAL.map(o => makeFramed(makeInvite({ w:400, h:560, ...o })))
+  };
+}
+
+/* ==========================================================
+   المشاهد (lt = الزمن المحلي داخل المشهد بالثواني)
+   ========================================================== */
+function sceneIntro(lt) {                        // 0 – 5.2
+  const cx = W / 2, cy = H * .44;
+  const g0 = prog(lt, .2, 1.6);
+  const rg = ctx.createRadialGradient(cx, cy, 20, cx, cy, W * .6);
+  rg.addColorStop(0, `rgba(233,184,174,${.2 * g0})`);
+  rg.addColorStop(1, 'rgba(233,184,174,0)');
+  ctx.fillStyle = rg; ctx.fillRect(0, 0, W, H);
+  if (!LOGO) return;
+  const k = easeOut(prog(lt, .3, 2));
+  const ang = (1 - k) * 1.3;
+  const sc = lerp(.8, 1, easeOutBack(prog(lt, .3, 1.8)));
+  ctx.save();
+  ctx.globalAlpha *= smooth(prog(lt, .3, .9));
+  ctx.translate(cx, cy); ctx.scale(sc, sc); ctx.translate(-cx, -cy + Math.sin(lt * 1.1) * 8 * k);
+  drawLogo(cx, cy, 760, ang);
+  ctx.restore();
+  sweep(lt, 2.1, 1.2, cx, cy, 760, 760 * LOGO.height / LOGO.width);
+}
+
+function sceneCard(lt) {                         // 4.7 – 10.2
+  const cx = W / 2, cy = H * .5, cw = 600, ch = 860;
+  const enter = easeOut(prog(lt, 0, 1.2));
+  const open = easeIO(prog(lt, 3.0, 1.4));
+  const s0 = lerp(.6, 1, easeOutBack(prog(lt, 0, 1.2)));
+  const ang = (1 - enter) * -1.1 + Math.sin(lt * .9) * .05 * (1 - open) + open * 1.3;
+  // ظل أرضي
+  ctx.save();
+  ctx.translate(cx, cy + ch / 2 + 30); ctx.scale(1, .12);
+  const sg = ctx.createRadialGradient(0, 0, 0, 0, 0, 420);
+  sg.addColorStop(0, `rgba(20,4,10,${.6 * enter * (1 - open)})`);
+  sg.addColorStop(1, 'rgba(20,4,10,0)');
+  ctx.fillStyle = sg; ctx.beginPath(); ctx.arc(0, 0, 420, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+  // الصفحة الداخلية تظهر تحت الغلاف
+  if (open > 0) {
+    ctx.save();
+    ctx.globalAlpha *= smooth(prog(lt, 3.0, 1.2));
+    ctx.drawImage(TX.inside, cx - cw / 2, cy - ch / 2, cw, ch);
+    ctx.restore();
+  }
+  // الغلاف: يدور حول حافته اليسرى ليُفتح نحو المشاهد
+  ctx.save();
+  ctx.translate(cx, cy); ctx.scale(s0, s0); ctx.translate(-cx, -cy);
+  ctx.globalAlpha *= smooth(prog(lt, 0, .5));
+  slab(TX.front, cx - cw / 2, 1, cw, cy, ch, ang, 2200, 0, TX.front.width);
+  ctx.restore();
+
+  const r1 = reveal(lt, .8), r2 = reveal(lt, 1.5);
+  T('لكل مناسبة حكاية…', W / 2, H * .15 + r1.dy, '700 76px Tajawal', C.cream, r1.a);
+  T('تبدأ بدعوة.', W / 2, H * .15 + 100 + r2.dy, '700 64px Tajawal', C.gold, r2.a);
+}
+
+function scenePhones(lt) {                       // 9.8 – 14.8
+  const a1 = easeIO(prog(lt, 1.8, .6)), a2 = easeIO(prog(lt, 2.8, .6));
+  const active = a1 + a2;                        // ينتقل من الهاتف 0 إلى 2
+  const cy = H * .55;
+  const order = [0, 1, 2].sort((p, q) => Math.abs(q - active) - Math.abs(p - active));
+  for (const i of order) {
+    const d = i - active, ad = Math.min(1, Math.abs(d));
+    const en = easeOut(prog(lt, .2 + i * .18, .9));
+    const x = W / 2 + d * 400;
+    const y = cy + (1 - en) * 260 + ad * 30;
+    const s = (1 - .2 * ad) * lerp(.8, 1, en);
+    const al = en * (1 - .45 * ad);
+    const ang = d * .45;
+    const dw = 480, dh = 997;
+    ctx.save();
+    ctx.globalAlpha *= al;
+    ctx.translate(x, y); ctx.scale(s, s);
+    slab(TX.phones[i], 0, -1, dw / 2, 0, dh, ang, 2000, 0, 260);
+    slab(TX.phones[i], 0, 1, dw / 2, 0, dh, ang, 2000, 260, 260);
+    ctx.restore();
+  }
+  const r1 = reveal(lt, .5), r2 = reveal(lt, 1.0);
+  T('دعوات إلكترونية', W / 2, H * .15 + r1.dy, '700 74px Tajawal', C.cream, r1.a);
+  T('بتصاميم تعكس ذوقك.', W / 2, H * .15 + 100 + r2.dy, '700 64px Tajawal', C.gold, r2.a);
+}
+
+function sceneDetails(lt) {                      // 14.3 – 19.2
+  const z = lerp(1.25, 1, easeOut(prog(lt, .3, 1.6)));
+  const panY = lerp(180, -40, easeIO(prog(lt, 1.8, 2.8)));
+  const bw = 700, bh = bw * 1400 / 900;
+  ctx.save();
+  ctx.translate(W / 2, H * .56 + panY); ctx.scale(z, z);
+  ctx.drawImage(TX.big, -bw / 2, -bh / 2, bw, bh);
+  const sh = prog(lt, 1.2, 2.2);                 // لمعة ذهبية تمر على البطاقة
+  if (sh > 0 && sh < 1) {
+    const x = lerp(-bw, bw, sh);
+    const g = ctx.createLinearGradient(x - 120, 0, x + 120, 0);
+    g.addColorStop(0, 'rgba(255,230,180,0)'); g.addColorStop(.5, 'rgba(255,230,180,.35)'); g.addColorStop(1, 'rgba(255,230,180,0)');
+    ctx.globalCompositeOperation = 'screen';
+    ctx.fillStyle = g; ctx.fillRect(-bw / 2, -bh / 2, bw, bh);
+  }
+  ctx.restore();
+  const r1 = reveal(lt, .3), r2 = reveal(lt, .9);
+  T('نهتم بكل تفصيلة…', W / 2, H * .15 + r1.dy, '700 70px Tajawal', C.cream, r1.a);
+  T('لتكون دعوتك استثنائية.', W / 2, H * .15 + 100 + r2.dy, '700 64px Tajawal', C.gold, r2.a);
+}
+
+function sceneGallery(lt) {                      // 18.7 – 24.2
+  const dw = 290, dh = 387;
+  const cols = [-320, 0, 320], rows = [H * .4, H * .4 + 440];
+  const items = GAL.map((_, i) => {
+    const row = Math.floor(i / 3), col = i % 3, delay = .15 * i;
+    const p = prog(lt, delay, 1.1);
+    const e = easeOut(p);
+    return {
+      i, x: W / 2 + cols[col], y: rows[row] + (1 - e) * 260,
+      s: lerp(.35, 1, e), al: smooth(prog(lt, delay, .6)), ang: Math.sin(lt * .9 + i) * .12
+    };
+  }).sort((a, b) => a.s - b.s);                  // الأبعد أولاً
+  for (const it of items) {
+    if (it.al <= 0) continue;
+    const tex = TX.gal[it.i], fw = tex.width;
+    ctx.save();
+    ctx.globalAlpha *= it.al;
+    ctx.translate(it.x, it.y); ctx.scale(it.s, it.s);
+    ctx.shadowColor = 'rgba(20,4,10,.6)'; ctx.shadowBlur = 50; ctx.shadowOffsetY = 30;
+    ctx.fillStyle = '#2a0d16';
+    ctx.fillRect(-dw / 2 + 12, -dh / 2 + 12, dw - 24, dh - 24);
+    ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+    slab(tex, 0, -1, dw / 2, 0, dh, it.ang, 1800, 0, fw / 2);
+    slab(tex, 0, 1, dw / 2, 0, dh, it.ang, 1800, fw / 2, fw / 2);
+    ctx.restore();
+  }
+  const r1 = reveal(lt, .3), r2 = reveal(lt, .9);
+  T('اختاري تصميمًا', W / 2, H * .15 + r1.dy, '700 74px Tajawal', C.cream, r1.a);
+  T('يشبه مناسبتك.', W / 2, H * .15 + 100 + r2.dy, '700 64px Tajawal', C.gold, r2.a);
+}
+
+function sceneEnd(lt) {                          // 23.6 – 30
+  const cx = W / 2, cy = H * .42;
+  const a = prog(lt, .2, 1.6);
+  const rg = ctx.createRadialGradient(cx, cy, 20, cx, cy, W * .6);
+  rg.addColorStop(0, `rgba(233,184,174,${.22 * a})`);
+  rg.addColorStop(1, 'rgba(233,184,174,0)');
+  ctx.fillStyle = rg; ctx.fillRect(0, 0, W, H);
+  ctx.save();                                    // أشعة خفيفة تدور ببطء
+  ctx.translate(cx, cy); ctx.rotate(lt * .05);
+  for (let k = 0; k < 12; k++) {
+    ctx.rotate(Math.PI / 6);
+    ctx.fillStyle = `rgba(244,230,216,${.035 * a})`;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-40, -W); ctx.lineTo(40, -W); ctx.fill();
+  }
+  ctx.restore();
+  if (LOGO) {
+    const sc = lerp(1.12, 1, easeOut(prog(lt, .2, 1.8)));
+    ctx.save();
+    ctx.globalAlpha *= smooth(a);
+    ctx.translate(cx, cy); ctx.scale(sc, sc); ctx.translate(-cx, -cy);
+    drawLogo(cx, cy, 700);
+    ctx.restore();
+    sweep(lt, 1.4, 1.0, cx, cy, 700, 700 * LOGO.height / LOGO.width);
+  }
+  const r = reveal(lt, 2.6, 1.1);
+  T('متخصصة في تصميم الدعوات الإلكترونية فقط.', W / 2, H * .72 + r.dy, '600 46px Tajawal', C.gold, r.a);
+}
+
+const SCENES = [
+  { a: 0,    b: 5.2,  fn: sceneIntro },
+  { a: 4.7,  b: 10.2, fn: sceneCard },
+  { a: 9.8,  b: 14.8, fn: scenePhones },
+  { a: 14.3, b: 19.2, fn: sceneDetails },
+  { a: 18.7, b: 24.2, fn: sceneGallery },
+  { a: 23.6, b: DUR,  fn: sceneEnd }
+];
+function sceneAlpha(t, s) {
+  const fi = s.a === 0 ? 1 : smooth(prog(t, s.a, .6));
+  const fo = s.b >= DUR ? 1 : smooth(clamp((s.b - t) / .6));
+  return fi * fo;
+}
+
+/* ---------- العرض ---------- */
+function render(t) {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  drawBG(t);
+  if (READY) {
+    for (const s of SCENES) {
+      const a = sceneAlpha(t, s);
+      if (a <= .001) continue;
+      ctx.save(); ctx.globalAlpha *= a; s.fn(t - s.a); ctx.restore();
+    }
+    for (const [st, x, y, sz] of SPARKS) sparkle(x, y, sz, t - st);
+  }
+  ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+}
+
+/* ==========================================================
+   الصوت: مؤثرات وموسيقى خلفية تُولَّد بالكامل بـ Web Audio
+   (لا توجد ملفات صوتية خارجية، وتعمل نفس الجدولة للتشغيل والتصدير)
+   ========================================================== */
+const CUES = [
+  { t: 1.6, k: 'chime' }, { t: 4.6, k: 'whoosh' }, { t: 7.7, k: 'paper' }, { t: 9.6, k: 'whoosh' },
+  { t: 10.6, k: 'sparkle' }, { t: 11.6, k: 'whoosh' }, { t: 12.6, k: 'whoosh' }, { t: 14.2, k: 'whoosh' },
+  { t: 15.4, k: 'sparkle' }, { t: 17.0, k: 'sparkle' }, { t: 18.6, k: 'whoosh' }, { t: 19.8, k: 'sparkle' },
+  { t: 21.5, k: 'sparkle' }, { t: 23.5, k: 'whoosh' }, { t: 24.6, k: 'chime' }, { t: 26.5, k: 'sparkle' }
+];
+function noiseBuf(actx) {
+  const len = Math.floor(actx.sampleRate * 1.5);
+  const b = actx.createBuffer(1, len, actx.sampleRate);
+  const d = b.getChannelData(0);
+  let s = 1;
+  for (let i = 0; i < len; i++) { s = (s * 16807) % 2147483647; d[i] = (s / 2147483647) * 2 - 1; }
+  return b;
+}
+function buildAudio(actx, out, fromT, t0) {
+  const nodes = [], nb = noiseBuf(actx), span = DUR - fromT + .5;
+  // لحن وسادة ناعم (D major 7 مع تموّج بطيء)
+  const bus = actx.createGain(); bus.connect(out); nodes.push(bus);
+  const lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900; lp.Q.value = .4;
+  lp.connect(bus); nodes.push(lp);
+  const lfo = actx.createOscillator(), lfoG = actx.createGain();
+  lfo.frequency.value = .07; lfoG.gain.value = 250;
+  lfo.connect(lfoG); lfoG.connect(lp.frequency); lfo.start(t0); lfo.stop(t0 + span); nodes.push(lfo);
+  [146.83, 220, 277.18, 369.99, 440].forEach((f, i) => {
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = i % 2 ? 'triangle' : 'sine'; o.frequency.value = f; o.detune.value = (i - 2) * 4;
+    g.gain.value = .05 / (1 + i * .3);
+    o.connect(g); g.connect(lp); o.start(t0); o.stop(t0 + span); nodes.push(o, g);
+  });
+  bus.gain.setValueAtTime(0, t0);
+  for (let tt = fromT; tt <= DUR; tt += .2) {
+    const v = clamp(tt / 2.5) * (1 - smooth(prog(tt, 27.8, 2.2))) * .9;
+    bus.gain.linearRampToValueAtTime(v, t0 + (tt - fromT));
+  }
+  for (const c of CUES) {
+    if (c.t < fromT) continue;
+    const w = t0 + (c.t - fromT);
+    if (c.k === 'whoosh') whoosh(actx, out, nb, w, nodes);
+    if (c.k === 'paper') paper(actx, out, nb, w, nodes);
+    if (c.k === 'sparkle') sparkSfx(actx, out, w, nodes);
+    if (c.k === 'chime') chime(actx, out, w, nodes);
+  }
+  return nodes;
+}
+function whoosh(actx, out, nb, w, nodes) {
+  const s = actx.createBufferSource(); s.buffer = nb; s.loop = true;
+  const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 1.2;
+  bp.frequency.setValueAtTime(300, w);
+  bp.frequency.exponentialRampToValueAtTime(3800, w + .7);
+  bp.frequency.exponentialRampToValueAtTime(900, w + 1.0);
+  const g = actx.createGain();
+  g.gain.setValueAtTime(0, w); g.gain.linearRampToValueAtTime(.35, w + .25); g.gain.linearRampToValueAtTime(0, w + 1.0);
+  s.connect(bp); bp.connect(g); g.connect(out);
+  s.start(w, .3); s.stop(w + 1.05); nodes.push(s, bp, g);
+}
+function paper(actx, out, nb, w, nodes) {
+  const s = actx.createBufferSource(); s.buffer = nb;
+  const hp = actx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1500;
+  const g = actx.createGain();
+  g.gain.setValueAtTime(0, w); g.gain.linearRampToValueAtTime(.4, w + .01); g.gain.exponentialRampToValueAtTime(.001, w + .35);
+  s.connect(hp); hp.connect(g); g.connect(out); s.start(w, .2); s.stop(w + .4); nodes.push(s, hp, g);
+  const o = actx.createOscillator(), og = actx.createGain();
+  o.frequency.setValueAtTime(200, w); o.frequency.exponentialRampToValueAtTime(70, w + .25);
+  og.gain.setValueAtTime(.3, w); og.gain.exponentialRampToValueAtTime(.001, w + .3);
+  o.connect(og); og.connect(out); o.start(w); o.stop(w + .32); nodes.push(o, og);
+}
+function sparkSfx(actx, out, w, nodes) {
+  [0, .07, .14].forEach((d, i) => {
+    const o = actx.createOscillator(), g = actx.createGain(), f = 2400 + i * 700;
+    o.type = 'sine';
+    o.frequency.setValueAtTime(f, w + d); o.frequency.exponentialRampToValueAtTime(f * 1.5, w + d + .25);
+    g.gain.setValueAtTime(0, w + d); g.gain.linearRampToValueAtTime(.12, w + d + .01); g.gain.exponentialRampToValueAtTime(.001, w + d + .4);
+    o.connect(g); g.connect(out); o.start(w + d); o.stop(w + d + .45); nodes.push(o, g);
+  });
+}
+function chime(actx, out, w, nodes) {
+  [659.25, 987.77, 1318.5, 1975.5].forEach((f, i) => {
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = 'sine'; o.frequency.value = f;
+    const a = [.16, .08, .05, .02][i];
+    g.gain.setValueAtTime(0, w); g.gain.linearRampToValueAtTime(a, w + .02); g.gain.exponentialRampToValueAtTime(.001, w + 3.2);
+    o.connect(g); g.connect(out); o.start(w); o.stop(w + 3.3); nodes.push(o, g);
+  });
+}
+
+/* ---------- حالة التشغيل ---------- */
+const S = { t: 0, playing: true, last: 0, sound: true, armed: false, exporting: false };
+let AC = null, MASTER = null, REC_DEST = null, live = [], lastFile = null, lastUrl = null;
+
+function ensureAudio() {
+  if (AC) return true;
+  const Ctor = window.AudioContext || window.webkitAudioContext;
+  if (!Ctor) return false;
+  AC = new Ctor();
+  MASTER = AC.createGain(); MASTER.gain.value = S.sound ? 1 : 0;
+  MASTER.connect(AC.destination);
+  REC_DEST = AC.createMediaStreamDestination();
+  MASTER.connect(REC_DEST);
+  return true;
+}
+function startAudio(fromT) {
+  stopAudio();
+  if (!S.armed || (!S.sound && !S.exporting)) return;
+  if (!ensureAudio()) return;
+  if (AC.state === 'suspended') AC.resume();
+  live = buildAudio(AC, MASTER, fromT, AC.currentTime + .05);
+}
+function stopAudio() {
+  for (const n of live) { try { n.stop(); } catch (_) {} try { n.disconnect(); } catch (_) {} }
+  live = [];
+}
+function armAudio() {                              // أول لمسة للمستخدم تفعّل الصوت (قيد المتصفحات)
+  if (S.armed) return;
+  S.armed = true;
+  if (ensureAudio() && AC.state === 'suspended') AC.resume();
+  if (S.playing) startAudio(S.t);
+}
+function play() {
+  if (S.t >= DUR) S.t = 0;
+  S.playing = true; S.last = performance.now();
+  armAudio(); startAudio(S.t);
+}
+function pause() { S.playing = false; stopAudio(); }
+function seek(t) {
+  S.t = clamp(t, 0, DUR);
+  if (S.playing) startAudio(S.t);
+  render(S.t);
+}
+
+/* ---------- واجهة التحكم ---------- */
+const fmt = s => { const m = Math.floor(s / 60), r = Math.floor(s % 60); return `${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`; };
+function updateUI() {
+  $('fill').style.width = (S.t / DUR * 100).toFixed(2) + '%';
+  $('seek').value = S.t.toFixed(2);
+  $('time').textContent = `${fmt(S.t)} / ${fmt(DUR)}`;
+  $('btnPlay').textContent = S.playing ? '❚❚ إيقاف مؤقت' : (S.t >= DUR ? '↺ إعادة' : '▶ تشغيل');
+  $('btnPlay').setAttribute('aria-label', S.playing ? 'إيقاف مؤقت' : 'تشغيل');
+  $('btnExport').disabled = S.exporting;
+  $('btnRestart').disabled = S.exporting;
+}
+function setMsg(s) { $('msg').textContent = s; }
+
+function pickMime() {
+  if (!window.MediaRecorder || !MediaRecorder.isTypeSupported) return null;
+  const list = [
+    'video/mp4;codecs=avc1.640028,mp4a.40.2', 'video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4',
+    'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'
+  ];
+  return list.find(m => MediaRecorder.isTypeSupported(m)) || null;
+}
+
+/* تصدير حقيقي: تسجيل الكانفاس والصوت معًا عبر MediaRecorder بجودة عالية.
+   يُسجَّل الإعلان كاملًا بالزمن الفعلي (30 ثانية). */
+async function exportVideo() {
+  if (S.exporting) return;
+  const mime = pickMime();
+  if (!cv.captureStream || !mime) {
+    setMsg('هذا المتصفح لا يدعم تسجيل الفيديو. افتحي الصفحة في Safari محدّث على الآيفون أو Chrome على الكمبيوتر.');
+    return;
+  }
+  S.armed = true;
+  if (!ensureAudio()) setMsg('الصوت غير مدعوم هنا، سيُصدَّر الفيديو بدون صوت.');
+  if (AC && AC.state === 'suspended') await AC.resume();
+  pause();
+  S.exporting = true; S.t = 0;
+  const prevGain = MASTER ? MASTER.gain.value : 1;
+  if (MASTER) MASTER.gain.value = 1;                 // التصدير يتجاهل كتم الصوت المحلي
+
+  const tracks = [...cv.captureStream(FPS).getVideoTracks()];
+  if (REC_DEST) tracks.push(...REC_DEST.stream.getAudioTracks());
+  const rec = new MediaRecorder(new MediaStream(tracks), {
+    mimeType: mime, videoBitsPerSecond: 16000000, audioBitsPerSecond: 192000
+  });
+  const chunks = [];
+  rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  const stopped = new Promise(r => { rec.onstop = r; });
+  rec.start(500);
+  S.playing = true; S.last = performance.now();
+  startAudio(0);
+  setMsg('جاري التصدير… ابقي الصفحة مفتوحة وظاهرة حتى ينتهي الإعلان (30 ثانية).');
+  while (S.playing) await new Promise(r => setTimeout(r, 100));
+  await new Promise(r => setTimeout(r, 400));
+  rec.stop(); await stopped;
+  stopAudio();
+  if (MASTER) MASTER.gain.value = prevGain;
+
+  const type = rec.mimeType || mime;
+  const ext = type.includes('mp4') ? 'mp4' : 'webm';
+  const blob = new Blob(chunks, { type });
+  lastFile = new File([blob], `NOURA-invitation-ad.${ext}`, { type });
+  S.exporting = false;
+  $('btnSave').hidden = false;
+  await saveFile();
+  setMsg(ext === 'mp4'
+    ? 'تم تصدير الفيديو بصيغة MP4 ✓ (إن لم يُحفظ تلقائيًا، اضغطي «حفظ الفيديو»).'
+    : 'متصفحك صدّر الفيديو بصيغة WebM لأنه لا يدعم MP4. للتحويل إلى MP4 راجعي README.md.');
+}
+async function saveFile() {                         // يحاول المشاركة (ليصل إلى «حفظ الفيديو» على الآيفون) ثم التنزيل
+  if (!lastFile) return;
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [lastFile] })) {
+      await navigator.share({ files: [lastFile], title: 'NOURA' });
+      return;
+    }
+  } catch (e) { if (e && e.name === 'AbortError') return; }
+  if (lastUrl) URL.revokeObjectURL(lastUrl);
+  lastUrl = URL.createObjectURL(lastFile);
+  const a = document.createElement('a');
+  a.href = lastUrl; a.download = lastFile.name;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+function wireUI() {
+  $('btnPlay').onclick = () => { armAudio(); S.playing ? pause() : play(); };
+  $('btnRestart').onclick = () => { pause(); S.t = 0; play(); };
+  $('btnSound').onclick = () => {
+    S.sound = !S.sound;
+    if (MASTER) MASTER.gain.value = S.sound ? 1 : 0;
+    $('btnSound').textContent = S.sound ? '🔊 الصوت' : '🔇 الصوت متوقف';
+    if (S.sound && S.playing) startAudio(S.t);
+    if (!S.sound) stopAudio();
+  };
+  $('btnExport').onclick = exportVideo;
+  $('btnSave').onclick = saveFile;
+  $('seek').addEventListener('input', e => seek(parseFloat(e.target.value)));
+  const firstGesture = () => armAudio();
+  document.addEventListener('pointerdown', firstGesture, { passive: true });
+  document.addEventListener('keydown', e => {
+    if (e.code === 'Space' && e.target.tagName !== 'BUTTON' && e.target.tagName !== 'INPUT') {
+      e.preventDefault(); armAudio(); S.playing ? pause() : play();
+    }
+  });
+}
+
+/* ---------- الحلقة الرئيسية ---------- */
+function loop(now) {
+  const dt = Math.min(.1, (now - S.last) / 1000);
+  S.last = now;
+  if (S.playing) {
+    S.t += dt;
+    if (S.t >= DUR) { S.t = DUR; pause(); }
+  }
+  render(S.t);
+  updateUI();
+  requestAnimationFrame(loop);
+}
+
+async function init() {
+  await Promise.race([
+    Promise.all(['700 72px Amiri', '400 40px Amiri', '300 40px Tajawal', '400 40px Tajawal',
+                 '500 40px Tajawal', '600 40px Tajawal', '700 40px Tajawal']
+      .map(f => document.fonts.load(f).catch(() => null))),
+    new Promise(r => setTimeout(r, 3000))
+  ]);
+  buildTextures();
+  READY = true;
+  wireUI();
+  S.last = performance.now();
+  requestAnimationFrame(loop);
+}
+
+// واجهة صغيرة للاختبار والتحكم من الكونسول
+window.NOURA = {
+  DUR, FPS,
+  at(t) { S.t = clamp(t, 0, DUR); render(S.t); },        // يعرض لحظة محددة بدقة
+  canvas: cv
+};
+init();
+</script>
+</body>
+</html>
